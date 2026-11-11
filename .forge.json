@@ -1,0 +1,19 @@
+{
+  "forge_version": 1,
+  "profile": "rust",
+  "name": "rv-avauth",
+  "module": "rv_avauth",
+  "title": "RV AvAuth",
+  "run_command": "scan",
+  "planned_command": "analyze",
+  "case_role": "analysis",
+  "created": "2026-11-11",
+  "cli_command": [
+    "cargo",
+    "run",
+    "-q",
+    "-p",
+    "rv-avauth-cli",
+    "--"
+  ]
+}
