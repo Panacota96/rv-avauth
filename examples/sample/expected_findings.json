@@ -1,0 +1,108 @@
+{
+  "bad-fmt.wav": [
+    "FORMAT_PARAMETERS_INCONSISTENT",
+    "METADATA_ABSENT"
+  ],
+  "broken-box.mp4": [
+    "METADATA_ABSENT",
+    "STRUCTURE_SIZE_INCONSISTENT"
+  ],
+  "camera-edited.mov": [
+    "DEVICE_CLAIM",
+    "EDITING_SOFTWARE_TRACE",
+    "ENCODER_CONFLICTS_WITH_DEVICE_CLAIM",
+    "ENCODER_IDENTIFIED",
+    "MEDIA_MODIFIED_AFTER_CREATION",
+    "MEDIA_TIMES_INCONSISTENT",
+    "MOOV_AFTER_MDAT",
+    "TAG_TIME_DIFFERS_FROM_HEADER",
+    "VENDOR_TRACES"
+  ],
+  "camera-original.mov": [
+    "DEVICE_CLAIM",
+    "ENCODER_IDENTIFIED",
+    "MOOV_AFTER_MDAT",
+    "VENDOR_TRACES"
+  ],
+  "camera-renamed.mp4": [
+    "BRAND_EXTENSION_MISMATCH",
+    "DEVICE_CLAIM",
+    "ENCODER_IDENTIFIED",
+    "MOOV_AFTER_MDAT",
+    "VENDOR_TRACES"
+  ],
+  "chained.ogg": [
+    "ENCODER_IDENTIFIED",
+    "OGG_CHAINED_STREAMS"
+  ],
+  "duration-mismatch.mp4": [
+    "DURATION_MISMATCH",
+    "METADATA_ABSENT",
+    "MULTIPLE_MDAT"
+  ],
+  "empty.wav": [
+    "EMPTY_FILE",
+    "MEDIA_NOT_RECOGNISED"
+  ],
+  "memo-converted.mp3": [
+    "DURATION_MISMATCH",
+    "ENCODER_IDENTIFIED",
+    "ONLINE_CONVERTER_TRACE",
+    "TRANSCODER_TRACE"
+  ],
+  "memo-lame.mp3": [
+    "ENCODER_IDENTIFIED"
+  ],
+  "memo-spliced.mp3": [
+    "FRAME_SYNC_GAPS",
+    "METADATA_ABSENT",
+    "STREAM_PARAMETERS_CHANGE"
+  ],
+  "memo-truncated.mp3": [
+    "METADATA_ABSENT",
+    "TRUNCATED_STREAM"
+  ],
+  "notes.txt": [],
+  "renamed-wave.mp3": [
+    "CONTAINER_EXTENSION_MISMATCH",
+    "METADATA_ABSENT"
+  ],
+  "tone-appended.wav": [
+    "METADATA_ABSENT",
+    "TRAILING_DATA"
+  ],
+  "tone-edited-audacity.wav": [
+    "DEVICE_CLAIM",
+    "EDITING_SOFTWARE_TRACE",
+    "ENCODER_CONFLICTS_WITH_DEVICE_CLAIM",
+    "ENCODER_IDENTIFIED"
+  ],
+  "tone-original.wav": [
+    "DEVICE_CLAIM",
+    "ENCODER_IDENTIFIED"
+  ],
+  "tone-truncated.wav": [
+    "DURATION_MISMATCH",
+    "METADATA_ABSENT",
+    "TRUNCATED_STREAM"
+  ],
+  "voice-note-spliced.opus": [
+    "ENCODER_IDENTIFIED",
+    "OGG_CRC_MISMATCH",
+    "OGG_GRANULE_NOT_MONOTONIC",
+    "OGG_PAGE_SEQUENCE_GAP",
+    "TRANSCODER_TRACE"
+  ],
+  "voice-note-truncated.opus": [
+    "ENCODER_IDENTIFIED",
+    "TRUNCATED_STREAM"
+  ],
+  "voice-note.opus": [
+    "ENCODER_IDENTIFIED"
+  ],
+  "voice-reencoded.m4a": [
+    "ENCODER_IDENTIFIED",
+    "MEDIA_TIMES_ZERO",
+    "TRANSCODER_TRACE"
+  ]
+}
