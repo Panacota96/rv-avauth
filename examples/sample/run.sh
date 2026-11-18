@@ -1,15 +1,15 @@
 #!/usr/bin/env sh
 # Runs the sample review and checks the result. Usage: examples/sample/run.sh [path-to-rv-avauth]
 # Output folder: examples/sample/out (or $RV_SAMPLE_OUT).
-# Fails (non-zero exit) if the self-test, the scan or verify-log fails, or if the tool's hash register
+# Fails (non-zero exit) if the self-test, the analysis or verify-log fails, or if the tool's hash register
 # (logs/<RUN-ID>/hashes.csv) differs from the independently computed expected_hashes.csv.
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 bin=${1:-rv-avauth}
 out=${RV_SAMPLE_OUT:-"$here/out"}
 "$bin" self-test
-# Expected exit code 0: one medium finding (extension mismatch) and one duplicate pair, no high finding.
-"$bin" scan --input "$here/evidence" --hash sha256,md5 --lang all --case DEMO-001 --actor "Sample" --out "$out" --progress none
+# Expected exit code 0: 22 synthetic media samples, findings listed in expected_findings.json, no high finding.
+"$bin" analyze --input "$here/evidence" --hash sha256,md5 --lang all --case DEMO-001 --actor "Sample" --out "$out" --progress none
 run=$(ls "$out/logs" | tail -n 1)
 "$bin" verify-log "$out/logs/$run"
 # Compare the tool's hash register with expected_hashes.csv: same files, sizes, SHA-256 and MD5.

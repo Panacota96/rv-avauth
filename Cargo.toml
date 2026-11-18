@@ -17,6 +17,9 @@ repository = "https://github.com/Panacota96/rv-avauth"
 rv-avauth-core = { path = "src/core" }
 # Media layer (src/media): bounded, pure-Rust container parsers and signals. No GPL/AGPL, no ffmpeg.
 rv-avauth-media = { path = "src/media" }
+# Worker isolation: RLIMIT_AS (Unix) and Job Objects (Windows).
+libc = "0.2"
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }
 md-5 = "0.11"
 sha1 = "0.11"
 sha2 = "0.11"

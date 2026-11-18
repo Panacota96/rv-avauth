@@ -58,8 +58,10 @@ fn test_pki(dir: &Path) -> Option<(TsaServer, String)> {
     Some((server, line.trim().to_string()))
 }
 
+/// The forge's three-file inventory fixture (acta.txt, acta-copia.txt, foto-vacaciones.jpg): the shared
+/// pipeline tests keep running on it; the media samples are tested in tests/samples.rs.
 fn sample() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/sample/evidence")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/inventory")
 }
 
 fn only_dir(p: &Path) -> PathBuf {

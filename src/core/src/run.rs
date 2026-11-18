@@ -5,7 +5,7 @@
 //! `<CASE>/runs/<tool>/<RUN-ID>/`, the case log records run_started / run_finished, and depending on
 //! [`CaseRole`] every item is registered (intake) or verified against the registry (analysis).
 
-use crate::analyzer::{Finding, Severity, analyze};
+use crate::analyzer::{Finding, Severity, analyze_item};
 use crate::audit::AuditLog;
 use crate::case::{self, Case, CaseRole, Comparison, Registration, Writer};
 use crate::events::{Event, eta_ms};
@@ -51,6 +51,8 @@ pub struct RunConfig {
     pub evidence_ids: Vec<String>,
     /// Intake (registers evidence) or analysis (verifies against the registry). Default: [`crate::CASE_ROLE`].
     pub case_role: CaseRole,
+    /// Media analysis options (references, worker limits, isolation).
+    pub domain: crate::analyzer::DomainOptions,
 }
 
 impl Default for RunConfig {
@@ -76,6 +78,7 @@ impl Default for RunConfig {
             case_dir: None,
             evidence_ids: vec![],
             case_role: crate::CASE_ROLE,
+            domain: crate::analyzer::DomainOptions::default(),
         }
     }
 }
@@ -99,6 +102,9 @@ pub struct RunSummary {
     pub timestamp: Value,
     /// Case folder runs: case id, role and how the items relate to the registry.
     pub case: Option<CaseInfo>,
+    /// Per-item results (findings, media `details`, outputs), in run order. Front-ends use them to show the
+    /// outcome without re-reading the reports from disk.
+    pub results: Vec<ItemResult>,
 }
 
 /// A run linked to a case folder.
@@ -478,6 +484,8 @@ fn pipeline(
             evidence_id: None,
             case_status: None,
             intake_utc: None,
+            details: Value::Null,
+            outputs: vec![],
         };
         match outcome {
             Ok(None) => {
@@ -506,15 +514,71 @@ fn pipeline(
                     path: path_s.clone(),
                     hashes,
                 });
-                let a = analyze(&result.file_name(), out.bytes, &out.head);
                 result.size = out.bytes;
-                result.hashes = out.digests;
-                result.detected_type = a.detected_type;
-                result.extension = a.extension;
-                result.findings = a.findings;
+                result.hashes = out.digests.clone();
+                // Case folder: the item is compared with the registry BEFORE it is analysed, so the audit
+                // shows the continuity check first (a mismatch is a finding; the analysis still runs).
                 if let Some(l) = link.as_deref_mut() {
                     case_check_item(l, cfg.case_role, &mut result, &mut log, sink)?;
                 }
+                // Second, read-only pass by the media analysis (whole file, in a worker process): the
+                // container is walked with random access, and the bytes are re-hashed and compared with the
+                // first pass. Logged as analysis_started.
+                let item_dir = report_dir.join("items").join(result.folder());
+                std::fs::create_dir_all(&item_dir).map_err(io)?;
+                let isolation = match &cfg.domain.isolation {
+                    crate::analyzer::Isolation::InProcess => "in_process",
+                    crate::analyzer::Isolation::Subprocess { .. } => "worker_process",
+                };
+                log.record(
+                    "analysis_started",
+                    Some(&path_s),
+                    json!({"index": item.index, "isolation": isolation}),
+                )
+                .map_err(io)?;
+                let file_name = result.file_name();
+                let fs_modified = modified
+                    .and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_secs() as i64);
+                let a = analyze_item(&crate::analyzer::AnalyzeCtx {
+                    path: &item.path,
+                    file_name: &file_name,
+                    size: out.bytes,
+                    head: &out.head,
+                    item_dir: &item_dir,
+                    opts: &cfg.domain,
+                    expected_digest: out.digests.first().map(|(a, h)| (*a, h.as_str())),
+                    fs_modified,
+                });
+                for o in &a.outputs {
+                    let p = item_dir.join(&o.rel_path);
+                    let digests = std::fs::File::open(&p)
+                        .and_then(|f| hash_reader(f, &cfg.algorithms, &mut |_| true));
+                    match digests {
+                        Ok(Some(d)) => {
+                            let hashes: BTreeMap<String, String> = d
+                                .digests
+                                .iter()
+                                .map(|(a, h)| (a.name().to_string(), h.clone()))
+                                .collect();
+                            log.record("output_written", Some(&path_s), json!({"index": item.index, "kind": o.kind, "file": format!("items/{}/{}", result.folder(), o.rel_path), "bytes": d.bytes, "hashes": hashes})).map_err(io)?;
+                            result.outputs.push(crate::report::OutputRecord {
+                                rel_path: o.rel_path.clone(),
+                                kind: o.kind.clone(),
+                                bytes: d.bytes,
+                                hashes,
+                            });
+                        }
+                        Ok(None) => {}
+                        Err(e) => {
+                            log.record("output_missing", Some(&path_s), json!({"index": item.index, "kind": o.kind, "file": o.rel_path, "error": e.to_string()})).map_err(io)?;
+                        }
+                    }
+                }
+                result.detected_type = a.detected_type;
+                result.extension = a.extension;
+                result.findings.extend(a.findings);
+                result.details = a.details;
             }
             Err(e) => {
                 errors += 1;
@@ -535,7 +599,7 @@ fn pipeline(
             }
         }
         let codes: Vec<String> = result.findings.iter().map(|f| f.code.clone()).collect();
-        result.audit_last_seq = log.record("item_analyzed", Some(&path_s), json!({"index": item.index, "detected_type": result.detected_type, "extension": result.extension, "findings": result.findings, "status": result.status()})).map_err(io)?;
+        result.audit_last_seq = log.record("item_analyzed", Some(&path_s), json!({"index": item.index, "detected_type": result.detected_type, "extension": result.extension, "findings": result.findings, "status": result.status(), "analysis": crate::analyzer::audit_summary(&result.details)})).map_err(io)?;
         sink(&Event::ItemFinished {
             index: item.index,
             path: path_s,
@@ -733,6 +797,7 @@ fn pipeline(
         audit_head: String::new(),
         timestamp: info.timestamp.clone(),
         case: info.case.clone(),
+        results: Vec::new(),
     };
     log.record("run_finished", None, json!({"items": summary.items, "bytes": summary.bytes, "errors": errors, "elapsed_ms": summary.elapsed_ms, "high": summary.high, "medium": summary.medium, "low": summary.low, "info": summary.info, "cancelled": cancelled})).map_err(io)?;
     sink(&Event::RunFinished {
@@ -750,6 +815,7 @@ fn pipeline(
     });
     Ok(RunSummary {
         audit_head: log.head().to_string(),
+        results,
         ..summary
     })
 }
@@ -1011,7 +1077,7 @@ mod tests {
     }
 
     fn sample_copy(dir: &Path) -> PathBuf {
-        let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/sample/evidence");
+        let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/inventory");
         let ev = dir.join("evidence");
         std::fs::create_dir_all(&ev).unwrap();
         for e in std::fs::read_dir(src).unwrap() {

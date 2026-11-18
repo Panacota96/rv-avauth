@@ -21,11 +21,18 @@ pub const SCHEMA_TECHNICAL: &str = "rakvor.item-technical/1";
 pub const SCHEMA_SUMMARY: &str = "rakvor.item-summary/1";
 
 /// Run-level limitations, always printed (what this tool cannot tell you).
-pub const LIMITATIONS: [&str; 4] = [
+pub const LIMITATIONS: [&str; 11] = [
     "SIGNATURE_TABLE_LIMITED",
     "TIMESTAMPS_FROM_FILESYSTEM",
     "CLEAN_RESULT_IS_NOT_AUTHENTICITY",
     "TIMESTAMP_PROVES_EXISTENCE_ONLY",
+    "NO_ENF_ANALYSIS",
+    "NO_CONTENT_OR_SPEAKER_ANALYSIS",
+    "METADATA_CAN_BE_FORGED_OR_STRIPPED",
+    "ENCODER_TABLE_LIMITED",
+    "CONTAINER_COVERAGE_LIMITED",
+    "THRESHOLDS_NOT_VALIDATED_ON_DEVICE_CORPUS",
+    "REFERENCE_COMPARISON_LIMITS",
 ];
 pub const SCHEMA_CUSTODY: &str = "rakvor.item-custody/1";
 const BLANK_TRANSFER_ROWS: usize = 6;
@@ -107,6 +114,18 @@ pub struct ItemResult {
     /// registered | already_registered | verified | mismatch | not_in_registry
     pub case_status: Option<String>,
     pub intake_utc: Option<String>,
+    /// Domain data from the analysis (Analysis::details) and the files it wrote (with digests).
+    pub details: serde_json::Value,
+    pub outputs: Vec<OutputRecord>,
+}
+
+/// A file written by the analysis, after the pipeline hashed and audited it.
+#[derive(Clone, Debug, Default, serde::Serialize)]
+pub struct OutputRecord {
+    pub rel_path: String,
+    pub kind: String,
+    pub bytes: u64,
+    pub hashes: BTreeMap<String, String>,
 }
 
 impl ItemResult {
@@ -415,7 +434,91 @@ pub fn item_context(lang: &str, run: &RunInfo, it: &ItemResult, audit: &AuditRef
         "audit".into(),
         json!({"head": audit.head, "entries": audit.entries, "log_dir": audit.log_dir}),
     );
+    m.insert("media".into(), media_view(c, it));
+    m.insert(
+        "outputs".into(),
+        json!(
+            it.outputs
+                .iter()
+                .map(|o| json!({"rel_path": o.rel_path, "kind": o.kind, "bytes": o.bytes,
+                    "digests": o.hashes.iter().map(|(a, h)| format!("{}: {}", a, h)).collect::<Vec<_>>().join("\n")}))
+                .collect::<Vec<_>>()
+        ),
+    );
     Value::Object(m)
+}
+
+/// The media section of the technical review (labels translated; values as written by the parser).
+fn media_view(c: &Catalog, it: &ItemResult) -> Value {
+    let d = &it.details;
+    let status = d["media_analysis"].as_str().unwrap_or_default();
+    if status.is_empty() {
+        return Value::Null;
+    }
+    let label = |k: &str| {
+        let key = format!("media_{}", k.split_whitespace().next().unwrap_or(k));
+        let l = c.label(&key);
+        if l == key {
+            k.to_string()
+        } else {
+            // "ogg_stream 52564131" keeps its serial number after the translated label.
+            match k.split_once(' ') {
+                Some((_, rest)) => format!("{} {}", l, rest),
+                None => l,
+            }
+        }
+    };
+    let m = &d["media"];
+    let overview: Vec<Value> = m["overview"]
+        .as_array()
+        .map(|a| a.as_slice())
+        .unwrap_or(&[])
+        .iter()
+        .map(|r| json!({"label": label(r["label"].as_str().unwrap_or_default()), "value": r["value"]}))
+        .collect();
+    let rows = |k: &str| m[k]["rows"].clone();
+    let more = |k: &str| {
+        let n = m[k]["more"].as_u64().unwrap_or(0);
+        if n > 0 {
+            c.label("media_more_rows").replace("%{n}", &n.to_string())
+        } else {
+            String::new()
+        }
+    };
+    let rehash = &d["evidence_rehash"];
+    json!({
+        "status": status,
+        "status_label": c.label(&format!("media_status_{}", status)),
+        "overview": overview,
+        "streams": rows("streams"), "streams_more": more("streams"),
+        "times": rows("times"), "times_more": more("times"),
+        "tags": rows("tags"), "tags_more": more("tags"),
+        "encoders": rows("encoders"), "encoders_more": more("encoders"),
+        "durations": rows("durations"), "durations_more": more("durations"),
+        "anomalies": rows("anomalies"), "anomalies_more": more("anomalies"),
+        "tree": rows("tree"), "tree_more": more("tree"),
+        "device_claims": m["device_claims"],
+        "notes": m["notes"],
+        "rehash": if rehash.is_object() {
+            json!(format!("{} {} = {} ({})", rehash["algorithm"].as_str().unwrap_or_default(),
+                c.label("media_second_pass"), rehash["second_pass"].as_str().unwrap_or_default(),
+                c.label(if rehash["match"].as_bool() == Some(true) { "media_rehash_match" } else { "media_rehash_differs" })))
+        } else { Value::Null },
+        "worker": if d["worker"].is_object() {
+            json!(format!("{} · {} s / {} MiB · {} ms", d["worker"]["status"].as_str().unwrap_or_default(),
+                d["worker"]["timeout_s"], d["worker"]["memory_mb"], d["worker"]["elapsed_ms"]))
+        } else { json!(c.label("media_in_process")) },
+        "references": d["references"].as_array().cloned().unwrap_or_default().iter()
+            .map(|r| json!({"path": r["path"], "sha256": r["sha256"].as_str().unwrap_or("—"), "status": r["status"]}))
+            .collect::<Vec<_>>(),
+        "reference_tables": d["reference_tables"].as_array().cloned().unwrap_or_default().iter()
+            .map(|t| json!({"reference": t["reference"], "rows": t["rows"].as_array().cloned().unwrap_or_default().iter()
+                .map(|r| json!({"aspect": label(&format!("ref_{}", r["aspect"].as_str().unwrap_or_default())),
+                                 "evidence": r["evidence"], "reference": r["reference"],
+                                 "same": c.label(if r["same"].as_bool() == Some(true) { "media_same" } else { "media_differs" })}))
+                .collect::<Vec<_>>()}))
+            .collect::<Vec<_>>(),
+    })
 }
 
 // ---------- JSON (language-neutral; texts included for each selected language) ----------
@@ -502,6 +605,8 @@ pub fn technical_json(run: &RunInfo, it: &ItemResult) -> Value {
         "findings": findings_json(it, &run.langs),
         "limitations": LIMITATIONS,
         "audit": {"first_seq": it.audit_first_seq, "last_seq": it.audit_last_seq},
+        "media": if it.details.is_object() { it.details.clone() } else { Value::Null },
+        "extracted_files": it.outputs,
     })
 }
 
@@ -794,6 +899,7 @@ pub fn technical_pdf(ctx: &Value, run: &RunInfo) -> Result<Vec<u8>, String> {
             ],
         });
     }
+    b.extend(media_blocks(ctx));
     b.push(Block::Heading(t("method")));
     b.push(Block::Para(t("method_text")));
     b.push(Block::Heading(t("audit")));
@@ -814,6 +920,173 @@ pub fn technical_pdf(ctx: &Value, run: &RunInfo) -> Result<Vec<u8>, String> {
         b.push(Block::Bullet(l.as_str().unwrap_or_default().into()));
     }
     finish(ctx, &t("title_technical"), &b, run)
+}
+
+/// Media section of the technical PDF (same view model as the HTML; tables as key/value rows).
+fn media_blocks(ctx: &Value) -> Vec<Block> {
+    let t = |k: &str| s(ctx, &format!("t.{}", k));
+    let m = &ctx["media"];
+    let mut b = Vec::new();
+    if !m.is_object() {
+        return b;
+    }
+    b.push(Block::Heading(t("media_analysis")));
+    let mut kv = vec![(t("status"), s(m, "status_label"))];
+    if !s(m, "rehash").is_empty() {
+        kv.push((t("media_rehash"), s(m, "rehash")));
+    }
+    kv.push((t("media_worker"), s(m, "worker")));
+    for r in arr(m, "overview") {
+        kv.push((s(r, "label"), s(r, "value")));
+    }
+    b.push(Block::Kv(kv));
+    let section =
+        |b: &mut Vec<Block>, title: &str, key: &str, f: &dyn Fn(&Value) -> (String, String)| {
+            let rows = arr(m, key);
+            if rows.is_empty() {
+                return;
+            }
+            b.push(Block::Heading(t(title)));
+            b.push(Block::Kv(rows.iter().map(f).collect()));
+            let more = s(m, &format!("{}_more", key));
+            if !more.is_empty() {
+                b.push(Block::Note(more));
+            }
+        };
+    section(&mut b, "media_streams", "streams", &|r| {
+        (
+            format!("#{} {} {}", s(r, "index"), s(r, "kind"), s(r, "codec")),
+            format!(
+                "{} \u{00B7} timescale {} \u{00B7} {} ms \u{00B7} {} {} {}",
+                s(r, "params"),
+                s(r, "timescale"),
+                s(r, "duration_ms"),
+                s(r, "samples"),
+                s(r, "handler"),
+                s(r, "compressor")
+            ),
+        )
+    });
+    section(&mut b, "media_times", "times", &|r| {
+        (
+            format!("{} ({})", s(r, "source"), s(r, "origin")),
+            format!("{} \u{00B7} {}", s(r, "utc"), s(r, "raw")),
+        )
+    });
+    section(&mut b, "media_durations", "durations", &|r| {
+        (
+            format!("{} ({})", s(r, "source"), s(r, "kind")),
+            format!("{} ms", s(r, "ms")),
+        )
+    });
+    section(&mut b, "media_encoders", "encoders", &|r| {
+        (
+            s(r, "source"),
+            format!(
+                "{} \u{2192} {} ({})",
+                s(r, "value"),
+                s(r, "label"),
+                s(r, "category")
+            ),
+        )
+    });
+    let claims = arr(m, "device_claims");
+    if !claims.is_empty() {
+        b.push(Block::Heading(t("media_device_claims")));
+        for c in claims {
+            b.push(Block::Bullet(c.as_str().unwrap_or_default().into()));
+        }
+    }
+    section(&mut b, "media_tags", "tags", &|r| {
+        (format!("{} {}", s(r, "source"), s(r, "key")), s(r, "value"))
+    });
+    section(&mut b, "media_anomalies", "anomalies", &|r| {
+        (
+            format!("{} @{}", s(r, "kind"), s(r, "offset")),
+            s(r, "detail"),
+        )
+    });
+    let tree = arr(m, "tree");
+    if !tree.is_empty() {
+        b.push(Block::Heading(t("media_tree")));
+        let lines: Vec<String> = tree
+            .iter()
+            .map(|r| {
+                format!(
+                    "{}{} @{} {} B {}",
+                    s(r, "indent"),
+                    s(r, "kind"),
+                    s(r, "offset"),
+                    s(r, "size"),
+                    s(r, "note")
+                )
+            })
+            .collect();
+        b.push(Block::Mono(lines.join("\n")));
+        if !s(m, "tree_more").is_empty() {
+            b.push(Block::Note(s(m, "tree_more")));
+        }
+    }
+    for tbl in arr(m, "reference_tables") {
+        b.push(Block::Heading(format!(
+            "{}: {}",
+            t("media_reference"),
+            s(tbl, "reference")
+        )));
+        b.push(Block::Kv(
+            arr(tbl, "rows")
+                .iter()
+                .map(|r| {
+                    (
+                        format!("{} ({})", s(r, "aspect"), s(r, "same")),
+                        format!(
+                            "{}: {}\n{}: {}",
+                            t("media_evidence"),
+                            s(r, "evidence"),
+                            t("media_reference"),
+                            s(r, "reference")
+                        ),
+                    )
+                })
+                .collect(),
+        ));
+    }
+    let refs = arr(m, "references");
+    if !refs.is_empty() {
+        b.push(Block::Kv(
+            refs.iter()
+                .map(|r| {
+                    (
+                        s(r, "path"),
+                        format!("{} \u{00B7} SHA-256 {}", s(r, "status"), s(r, "sha256")),
+                    )
+                })
+                .collect(),
+        ));
+    }
+    for n in arr(m, "notes") {
+        b.push(Block::Note(n.as_str().unwrap_or_default().into()));
+    }
+    let outs = arr(ctx, "outputs");
+    if !outs.is_empty() {
+        b.push(Block::Heading(t("extracted_files")));
+        b.push(Block::Kv(
+            outs.iter()
+                .map(|o| {
+                    (
+                        format!(
+                            "{} ({}, {} B)",
+                            s(o, "rel_path"),
+                            s(o, "kind"),
+                            s(o, "bytes")
+                        ),
+                        s(o, "digests"),
+                    )
+                })
+                .collect(),
+        ));
+    }
+    b
 }
 
 pub fn summary_pdf(ctx: &Value, run: &RunInfo) -> Result<Vec<u8>, String> {

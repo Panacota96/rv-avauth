@@ -317,6 +317,104 @@
           ]
         }
       }
+    },
+    "media": {
+      "description": "Media analysis (null when the item is not a media candidate): status, container, second-pass re-hash, worker, the report summaries (media.*) and the reference comparison. The full parsed model is in structure.json.",
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "media_analysis": {
+          "enum": [
+            "completed",
+            "not_completed",
+            "not_recognised"
+          ]
+        },
+        "container": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "iso_bmff",
+            "wave",
+            "ogg",
+            "mp3",
+            "unknown",
+            null
+          ]
+        },
+        "evidence_rehash": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "worker": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "media": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "references": {
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "reference_tables": {
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "options": {
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      }
+    },
+    "extracted_files": {
+      "description": "Every file the analysis wrote in the item folder, with its digests (also in the audit log).",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "rel_path",
+          "kind",
+          "bytes",
+          "hashes"
+        ],
+        "properties": {
+          "rel_path": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "hashes": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32,128}$"
+            }
+          }
+        }
+      }
     }
   }
 }
