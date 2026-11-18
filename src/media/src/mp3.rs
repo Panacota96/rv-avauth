@@ -381,6 +381,11 @@ fn resync(src: &mut dyn Source, from: u64, end: u64) -> Option<(u64, FrameHeader
 }
 
 pub fn parse(src: &mut dyn Source, info: &mut MediaInfo) {
+    parse_with_limit(src, info, limits::MAX_FRAMES)
+}
+
+/// `parse` with an explicit frame cap (tests use a small one; the walk stops after `max_frames` frames).
+pub fn parse_with_limit(src: &mut dyn Source, info: &mut MediaInfo, max_frames: u64) {
     let len = src.len();
     let mut m = Mp3Info::default();
     let mut start = 0u64;
@@ -490,11 +495,21 @@ pub fn parse(src: &mut dyn Source, info: &mut MediaInfo) {
     let skip_first = m.xing.is_some();
     let mut prev = fh;
     while off + 4 <= audio_end {
-        if frames >= limits::MAX_FRAMES {
+        if frames >= max_frames {
             m.frames_capped = true;
+            // The rest of the audio is not examined: a parser limit, never trailing data.
+            info.anomaly(
+                AnomalyKind::LimitReached,
+                off,
+                format!(
+                    "frame walk stopped after {} frames; {} bytes of audio not walked",
+                    max_frames,
+                    audio_end - off
+                ),
+            );
             info.note(format!(
                 "more than {} frames: the walk stopped (durations not compared)",
-                limits::MAX_FRAMES
+                max_frames
             ));
             break;
         }
@@ -561,7 +576,7 @@ pub fn parse(src: &mut dyn Source, info: &mut MediaInfo) {
         off += h.length as u64;
         last_end = off;
     }
-    if !truncated && last_end < audio_end {
+    if !truncated && !m.frames_capped && last_end < audio_end {
         info.anomaly(
             AnomalyKind::TrailingData,
             last_end,
@@ -576,7 +591,12 @@ pub fn parse(src: &mut dyn Source, info: &mut MediaInfo) {
             ),
         );
     }
-    info.logical_end = if last_end < audio_end { last_end } else { len };
+    // A capped walk does not know where the audio ends: the whole file is accounted for.
+    info.logical_end = if last_end < audio_end && !m.frames_capped {
+        last_end
+    } else {
+        len
+    };
     m.frames = frames;
     m.vbr = frames > 0 && min_br != max_br;
     if frames > 0 {

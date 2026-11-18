@@ -349,7 +349,14 @@ hash_reader(r, algos)                                        src/core/src/hash.r
 | MP3 | `ID3` at 0, or a valid MPEG layer III header at 0 whose next frame header follows at the computed length | mp3 mp2 mpga |
 
 A file whose content is none of these but whose name has one of the extensions is `MEDIA_NOT_RECOGNISED`; the
-inventory checks of the forge (signature table, `EXTENSION_MISMATCH`) still apply to it.
+inventory checks of the forge (signature table, `EXTENSION_MISMATCH`) still apply to it. A recognised container
+under a **media** extension of another container is `CONTAINER_EXTENSION_MISMATCH` (and replaces the generic
+finding); under a **non-media** extension the inventory compares (`.pdf`, `.txt`, `.docx`, …) it keeps the generic
+`EXTENSION_MISMATCH`, added by [mediascan.rs](../src/core/src/mediascan.rs) when the signature table does not know the
+container (an MP3 without ID3). Extensions the inventory does not compare (`.raw`, none) give neither.
+
+A walk stopped by a parser limit (frames, pages, boxes per parent) reports `PARSER_LIMIT_REACHED` and treats the rest
+of the file as not examined: it never becomes `TRAILING_DATA`, `TRUNCATED_STREAM` or a duration comparison.
 
 ### ISO BMFF box header (ISO/IEC 14496-12 §4.2)
 

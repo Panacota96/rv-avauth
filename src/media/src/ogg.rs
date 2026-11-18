@@ -57,20 +57,24 @@ fn resync(src: &mut dyn Source, from: u64) -> Option<u64> {
 }
 
 pub fn parse(src: &mut dyn Source, info: &mut MediaInfo) {
+    parse_with_limit(src, info, limits::MAX_PAGES)
+}
+
+/// `parse` with an explicit page cap (tests use a small one).
+pub fn parse_with_limit(src: &mut dyn Source, info: &mut MediaInfo, max_pages: u64) {
     let len = src.len();
+    let mut capped = false;
     let mut og = OggInfo::default();
     let mut tracks: Vec<Track> = vec![];
     let mut off = 0u64;
     let mut cut = false;
     while off < len {
-        if og.pages >= limits::MAX_PAGES {
+        if og.pages >= max_pages {
+            capped = true;
             info.anomaly(
                 AnomalyKind::LimitReached,
                 off,
-                format!(
-                    "more than {} pages: the rest is not walked",
-                    limits::MAX_PAGES
-                ),
+                format!("more than {} pages: the rest is not walked", max_pages),
             );
             off = len;
             break;
@@ -266,7 +270,8 @@ pub fn parse(src: &mut dyn Source, info: &mut MediaInfo) {
     for (i, t) in tracks.into_iter().enumerate() {
         let mut s = t.s;
         headers(info, &mut s, &t.packets);
-        if !s.eos {
+        // After a capped walk the end-of-stream page may simply not have been reached.
+        if !s.eos && !capped {
             info.anomaly(
                 AnomalyKind::Truncated,
                 info.logical_end,

@@ -21,6 +21,10 @@ const CONTAINERS: &[&[u8; 4]] = &[
 
 struct Walk {
     b: BmffInfo,
+    /// Boxes walked in one parent before the walk stops (`MAX_BOXES`; tests use a small one).
+    max_boxes: u32,
+    /// Set when a parent was not walked to its end because of `max_boxes`.
+    capped: bool,
     /// Index into `info.streams` of the track being read.
     track: Option<usize>,
     /// `keys` of the current QuickTime `meta` (ilst items refer to them by 1-based index).
@@ -28,17 +32,28 @@ struct Walk {
     tracks_seen: u32,
 }
 
+/// Boxes walked in one parent.
+pub const MAX_BOXES: u32 = 100_000;
+
 pub fn parse(src: &mut dyn Source, info: &mut MediaInfo) {
+    parse_with_limit(src, info, MAX_BOXES)
+}
+
+/// `parse` with an explicit cap on boxes per parent.
+pub fn parse_with_limit(src: &mut dyn Source, info: &mut MediaInfo, max_boxes: u32) {
     let mut w = Walk {
         b: BmffInfo::default(),
+        max_boxes,
+        capped: false,
         track: None,
         keys: vec![],
         tracks_seen: 0,
     };
     let len = src.len();
     let end = walk(src, info, &mut w, 0, len, 0, b"\0\0\0\0");
-    info.logical_end = end;
-    if end < len {
+    // A capped walk leaves the rest of the file unexamined (PARSER_LIMIT_REACHED), not trailing data.
+    info.logical_end = if w.capped { len } else { end };
+    if end < len && !w.capped {
         let n = len - end;
         let sample = src.read_upto(end, n, 1024 * 1024);
         let zero = sample.iter().all(|&c| c == 0) && n <= 1024 * 1024;
@@ -73,7 +88,8 @@ fn walk(
     let mut boxes = 0u32;
     while off < end {
         boxes += 1;
-        if boxes > 100_000 {
+        if boxes > w.max_boxes {
+            w.capped = true;
             info.anomaly(
                 AnomalyKind::LimitReached,
                 off,
