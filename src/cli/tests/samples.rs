@@ -98,16 +98,24 @@ fn samples_match_expected_findings_and_the_log_verifies() {
     assert_eq!(seen.len(), expected.len());
     // Media items ran in worker processes; their outputs were hashed and audited.
     let entries = audit(&logs);
-    let workers = entries
+    let started = entries
         .iter()
         .filter(|e| {
             e["action"] == "analysis_started" && e["details"]["isolation"] == "worker_process"
         })
         .count();
+    assert_eq!(started, expected.len(), "analysis_started for every item");
+    let workers = entries
+        .iter()
+        .filter(|e| {
+            e["action"] == "item_analyzed"
+                && e["details"]["analysis"]["worker"]["status"] == "completed"
+        })
+        .count();
     assert_eq!(
         workers,
         expected.len() - 1,
-        "every media candidate (not notes.txt)"
+        "every media candidate ran in a worker (not notes.txt)"
     );
     let analyzed: Vec<&Value> = entries
         .iter()

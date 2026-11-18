@@ -111,7 +111,20 @@ rv-avauth verify-case D:\cases\CASE-2026-014 --rehash                           
 python tests\verify_chain.py D:\cases\CASE-2026-014\runs\rv-avauth\<RUN-ID>\logs   # independent verifier
 ```
 
-## 7. Troubleshooting
+## 7. RV Hub and scripts
+
+`rv-avauth describe --json` (hidden from the command list) prints what the tool is and how to launch it (schema
+`rakvor.describe/1`): role `analysis`, main verb `analyze`, the extensions and content signatures it accepts
+(MP4/MOV/M4A/3GP, WAV, Ogg, MP3), the executables and the exit codes. RV Hub reads it to suggest the tool for a
+file and starts the GUI on a case as `rv-avauth-gui.exe --case-dir <CASE> [FILES...]`.
+
+| Field | Value |
+| --- | --- |
+| `role` | `analysis`: verifies every item against the case registry |
+| `main_verb` | `analyze`: the command that does the main work |
+| `accepts` | media extensions and the ISO BMFF, RIFF/WAVE, RF64, Ogg and ID3 signatures |
+
+## 8. Troubleshooting
 
 | Exit code / symptom | Meaning | What to do |
 | --- | --- | --- |
