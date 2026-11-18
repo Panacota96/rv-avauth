@@ -49,6 +49,19 @@ pub struct EvidenceLink {
     pub status: String,
 }
 
+/// One analysed item in the result panel: file name, status and finding codes (from `item_finished`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct ItemLine {
+    pub index: u64,
+    pub file_name: String,
+    /// ok | attention | problem
+    pub status: String,
+    pub findings: Vec<String>,
+}
+
+/// Worker time limits offered in the window (seconds); the CLI accepts any value 1–86400.
+pub const WORKER_TIMEOUTS: [u64; 4] = [60, 120, 600, 1800];
+
 pub const LANG_CHOICES: [(&str, &str); 4] = [
     ("en", "English"),
     ("es", "Español"),
@@ -85,6 +98,12 @@ pub struct GuiState {
     pub case_dir: String,
     /// Evidence ids reported by the last run (case folder only).
     pub evidence: Vec<EvidenceLink>,
+    /// Domain: reference file known to come from the claimed device or app (empty = none).
+    pub reference: String,
+    /// Domain: seconds a worker process may spend on one file.
+    pub worker_timeout_s: u64,
+    /// Items of the last run, for the result panel.
+    pub items: Vec<ItemLine>,
 }
 
 impl Default for GuiState {
@@ -112,6 +131,9 @@ impl Default for GuiState {
             sign_password: String::new(),
             case_dir: String::new(),
             evidence: vec![],
+            reference: String::new(),
+            worker_timeout_s: 120,
+            items: vec![],
         }
     }
 }
@@ -239,6 +261,61 @@ impl GuiState {
         }
     }
 
+    /// Domain setting: the reference file (path as typed or picked; its SHA-256 is recorded by the run).
+    pub fn set_reference(&mut self, path: &str) {
+        let path = path.trim().trim_matches('"').to_string();
+        if self.reference != path {
+            self.reference = path.clone();
+            self.note(
+                "ui_reference_changed",
+                json!({"path": if path.is_empty() { Value::Null } else { json!(path) }}),
+            );
+        }
+    }
+
+    /// Domain setting: worker time limit; only the values offered in the window are accepted.
+    pub fn set_worker_timeout(&mut self, secs: u64) {
+        if self.worker_timeout_s != secs && WORKER_TIMEOUTS.contains(&secs) {
+            self.worker_timeout_s = secs;
+            self.note("ui_worker_timeout_changed", json!({"seconds": secs}));
+        }
+    }
+
+    /// Result-panel lines: "00003  camera-edited.mov  — Needs attention: EDITING_SOFTWARE_TRACE, …".
+    pub fn item_lines(&self) -> Vec<String> {
+        let c = i18n::catalog(&self.ui_lang);
+        self.items
+            .iter()
+            .map(|it| {
+                let codes: Vec<&String> = it.findings.iter().take(4).collect();
+                let more = it.findings.len().saturating_sub(4);
+                format!(
+                    "{:05}  {}  \u{2014} {}{}{}",
+                    it.index,
+                    it.file_name,
+                    c.label(&format!("status_{}", it.status)),
+                    if codes.is_empty() {
+                        String::new()
+                    } else {
+                        format!(
+                            ": {}",
+                            codes
+                                .iter()
+                                .map(|s| s.as_str())
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        )
+                    },
+                    if more > 0 {
+                        format!(" (+{})", more)
+                    } else {
+                        String::new()
+                    }
+                )
+            })
+            .collect()
+    }
+
     /// Rule: with a case folder the output folder is `<case>/runs/<tool>/<RUN-ID>` and cannot be edited.
     pub fn set_case_dir(&mut self, path: &str) {
         let path = path.trim().trim_matches('"').to_string();
@@ -327,10 +404,14 @@ impl GuiState {
         if !self.sign_cert.is_empty() && !std::path::Path::new(&self.sign_cert).is_file() {
             return Err(format!("Signing certificate not found: {}", self.sign_cert));
         }
+        if !self.reference.is_empty() && !std::path::Path::new(&self.reference).is_file() {
+            return Err(format!("Reference file not found: {}", self.reference));
+        }
         let mut preamble = self.ui_actions.clone();
         preamble.push(("ui_start_clicked".into(), json!({"algorithms": self.selected, "lang": self.lang, "recursive": self.recursive,
             "inputs": self.inputs.len(), "jurisdiction": self.jurisdiction, "timestamp": self.timestamp,
-            "pdf_signing": !self.sign_cert.is_empty(), "case_dir": if self.out_locked() { json!(self.case_dir.trim()) } else { Value::Null },
+            "pdf_signing": !self.sign_cert.is_empty(), "reference": if self.reference.is_empty() { Value::Null } else { json!(self.reference) },
+            "worker_timeout_s": self.worker_timeout_s, "case_dir": if self.out_locked() { json!(self.case_dir.trim()) } else { Value::Null },
             "at_utc": rv_avauth_core::time::utc_now()})));
         let settings = vec![
             format!("{} (gui)", TOOL_NAME),
@@ -362,6 +443,15 @@ impl GuiState {
                 }
             ),
             format!("jurisdiction={}", self.jurisdiction),
+            format!(
+                "reference={}",
+                if self.reference.is_empty() {
+                    "none"
+                } else {
+                    self.reference.as_str()
+                }
+            ),
+            format!("worker_timeout={}", self.worker_timeout_s),
             format!(
                 "tsa={}",
                 if self.timestamp {
@@ -420,6 +510,19 @@ impl GuiState {
             },
             evidence_ids: vec![],
             case_role: CASE_ROLE,
+            domain: rv_avauth_core::analyzer::DomainOptions {
+                references: if self.reference.is_empty() {
+                    vec![]
+                } else {
+                    vec![PathBuf::from(&self.reference)]
+                },
+                worker_timeout_s: self.worker_timeout_s,
+                // The GUI executable doubles as the worker (`rv-avauth-gui worker …`, see main.rs).
+                isolation: std::env::current_exe()
+                    .map(|exe| rv_avauth_core::analyzer::Isolation::Subprocess { exe })
+                    .unwrap_or_default(),
+                ..rv_avauth_core::analyzer::DomainOptions::default()
+            },
         })
     }
 
@@ -430,6 +533,7 @@ impl GuiState {
         self.warnings.clear();
         self.outcome = None;
         self.evidence.clear();
+        self.items.clear();
         // Recorded actions now belong to this run's audit log.
         self.ui_actions.clear();
     }
@@ -445,6 +549,20 @@ impl GuiState {
                 self.progress.bytes_total = *total_bytes;
             }
             Event::ItemStarted { path, .. } => self.current_item = path.clone(),
+            Event::ItemFinished {
+                index,
+                path,
+                status,
+                findings,
+            } => self.items.push(ItemLine {
+                index: *index,
+                file_name: std::path::Path::new(path)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| path.clone()),
+                status: status.clone(),
+                findings: findings.clone(),
+            }),
             Event::EvidenceLinked {
                 index,
                 path,
@@ -768,5 +886,61 @@ mod tests {
                 && log.contains("\"frontend\":\"gui\"")
         );
         let _ = std::fs::remove_dir_all(&ev);
+    }
+
+    #[test]
+    fn domain_settings_are_audited_and_reach_the_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let reference = dir.path().join("ref.mov");
+        std::fs::write(&reference, b"x").unwrap();
+        let mut s = GuiState::default();
+        s.add_input(dir.path().to_path_buf());
+        s.set_reference(&reference.display().to_string());
+        s.set_worker_timeout(600);
+        s.set_worker_timeout(7); // not offered: ignored, not audited
+        assert_eq!(s.worker_timeout_s, 600);
+        let actions: Vec<&str> = s.ui_actions.iter().map(|a| a.0.as_str()).collect();
+        assert!(actions.contains(&"ui_reference_changed"));
+        assert_eq!(
+            actions
+                .iter()
+                .filter(|a| **a == "ui_worker_timeout_changed")
+                .count(),
+            1
+        );
+        assert!(s.ui_actions.iter().all(|a| a.1["at_utc"].is_string()));
+        let cfg = s.to_config().unwrap();
+        assert_eq!(cfg.domain.references, vec![reference.clone()]);
+        assert_eq!(cfg.domain.worker_timeout_s, 600);
+        assert!(matches!(
+            cfg.domain.isolation,
+            rv_avauth_core::analyzer::Isolation::Subprocess { .. }
+        ));
+        let start = cfg.preamble.last().unwrap();
+        assert_eq!(start.0, "ui_start_clicked");
+        assert_eq!(start.1["worker_timeout_s"], 600);
+        s.set_reference("missing-file.mov");
+        assert!(
+            s.to_config()
+                .unwrap_err()
+                .contains("Reference file not found")
+        );
+    }
+
+    #[test]
+    fn finished_items_are_listed_with_their_findings() {
+        let mut s = GuiState::default();
+        s.start();
+        s.apply(&Event::ItemFinished {
+            index: 3,
+            path: "/x/camera-edited.mov".into(),
+            status: "attention".into(),
+            findings: vec!["A".into(), "B".into(), "C".into(), "D".into(), "E".into()],
+        });
+        let l = s.item_lines();
+        assert!(l[0].starts_with("00003  camera-edited.mov"), "{}", l[0]);
+        assert!(l[0].ends_with("(+1)"), "{}", l[0]);
+        s.start();
+        assert!(s.items.is_empty());
     }
 }

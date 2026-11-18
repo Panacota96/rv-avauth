@@ -24,7 +24,7 @@ enum Msg {
     Done(Result<RunSummary, String>),
 }
 
-pub struct HashInvApp {
+pub struct AvAuthApp {
     state: GuiState,
     rx: Option<Receiver<Msg>>,
     cancel: Arc<AtomicBool>,
@@ -56,9 +56,9 @@ pub fn apply_theme(ctx: &egui::Context) {
     ctx.set_visuals(v);
 }
 
-impl HashInvApp {
+impl AvAuthApp {
     pub fn new() -> Self {
-        HashInvApp {
+        AvAuthApp {
             state: GuiState::default(),
             rx: None,
             cancel: Arc::new(AtomicBool::new(false)),
@@ -521,6 +521,78 @@ impl HashInvApp {
         });
     }
 
+    /// Domain settings: reference file and worker time limit (rules and audit in `state`).
+    fn media_section(&mut self, ui: &mut egui::Ui, enabled: bool) {
+        Self::section_title(ui, self.state.tr("media"));
+        let tr = |k: &str| self.state.tr(k);
+        let (l_ref, l_ref_hint, l_timeout, l_browse, l_note) = (
+            tr("reference"),
+            tr("reference_hint"),
+            tr("worker_timeout"),
+            tr("browse"),
+            tr("media_note"),
+        );
+        ui.add_enabled_ui(enabled, |ui| {
+            egui::Grid::new("media-grid")
+                .num_columns(2)
+                .spacing([12.0, 6.0])
+                .show(ui, |ui| {
+                    ui.label(l_ref);
+                    ui.horizontal(|ui| {
+                        let mut path = self.state.reference.clone();
+                        let r = ui.add(
+                            egui::TextEdit::singleline(&mut path)
+                                .hint_text(l_ref_hint)
+                                .desired_width(320.0),
+                        );
+                        if r.lost_focus() {
+                            self.state.set_reference(&path);
+                        } else {
+                            self.state.reference = path;
+                        }
+                        #[cfg(windows)]
+                        if ui.button(&l_browse).clicked()
+                            && let Some(f) = rfd::FileDialog::new()
+                                .add_filter(
+                                    "Media",
+                                    &[
+                                        "mp4", "m4a", "m4v", "mov", "3gp", "wav", "ogg", "opus",
+                                        "mp3",
+                                    ],
+                                )
+                                .pick_file()
+                        {
+                            self.state.set_reference(&f.display().to_string());
+                        }
+                        let _ = &l_browse;
+                    });
+                    ui.end_row();
+                    ui.label(l_timeout);
+                    let mut chosen = None;
+                    egui::ComboBox::from_id_salt("worker-timeout")
+                        .selected_text(format!("{} s", self.state.worker_timeout_s))
+                        .show_ui(ui, |ui| {
+                            for t in crate::state::WORKER_TIMEOUTS {
+                                if ui
+                                    .selectable_label(
+                                        self.state.worker_timeout_s == t,
+                                        format!("{} s", t),
+                                    )
+                                    .clicked()
+                                {
+                                    chosen = Some(t);
+                                }
+                            }
+                        });
+                    if let Some(t) = chosen {
+                        self.state.set_worker_timeout(t);
+                    }
+                    ui.end_row();
+                });
+            ui.weak(l_note);
+        });
+    }
+
     fn run_section(&mut self, ui: &mut egui::Ui) {
         ui.add_space(6.0);
         ui.horizontal(|ui| {
@@ -608,6 +680,25 @@ impl HashInvApp {
                                 });
                         });
                     }
+                    let items = self.state.item_lines();
+                    if !items.is_empty() {
+                        egui::CollapsingHeader::new(format!(
+                            "{} ({})",
+                            self.state.tr("results"),
+                            items.len()
+                        ))
+                        .default_open(true)
+                        .show(ui, |ui| {
+                            egui::ScrollArea::vertical()
+                                .max_height(180.0)
+                                .id_salt("item-results")
+                                .show(ui, |ui| {
+                                    for l in &items {
+                                        ui.monospace(l);
+                                    }
+                                });
+                        });
+                    }
                     ui.horizontal(|ui| {
                         if ui.button(self.state.tr("open_report")).clicked() {
                             open_path(&o.report);
@@ -635,7 +726,7 @@ impl HashInvApp {
     }
 }
 
-impl Default for HashInvApp {
+impl Default for AvAuthApp {
     fn default() -> Self {
         Self::new()
     }
@@ -650,8 +741,15 @@ fn open_path(p: &Path) {
     let _ = std::process::Command::new("xdg-open").arg(p).spawn();
 }
 
-impl eframe::App for HashInvApp {
+impl eframe::App for AvAuthApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.draw(ui);
+    }
+}
+
+impl AvAuthApp {
+    /// Draws one frame (also used by the headless screenshot example, which has no eframe::Frame).
+    pub fn draw(&mut self, ui: &mut egui::Ui) {
         if !self.themed {
             apply_theme(ui.ctx());
             self.themed = true;
@@ -669,9 +767,22 @@ impl eframe::App for HashInvApp {
                 self.hashing_section(ui, enabled);
                 self.report_section(ui, enabled);
                 self.trust_section(ui, enabled);
+                self.media_section(ui, enabled);
                 self.run_section(ui);
             });
         });
+    }
+
+    /// An app around a prepared state (headless screenshot, tests).
+    pub fn from_state(state: GuiState) -> Self {
+        AvAuthApp {
+            state,
+            ..Self::new()
+        }
+    }
+
+    pub fn state(&self) -> &GuiState {
+        &self.state
     }
 }
 
@@ -680,11 +791,11 @@ mod tests {
     use super::*;
     use crate::launch::parse_launch_args;
 
-    fn launch(args: &[&str]) -> HashInvApp {
-        HashInvApp::from_launch(parse_launch_args(args.iter().map(std::ffi::OsString::from)))
+    fn launch(args: &[&str]) -> AvAuthApp {
+        AvAuthApp::from_launch(parse_launch_args(args.iter().map(std::ffi::OsString::from)))
     }
 
-    fn actions(app: &HashInvApp) -> Vec<&str> {
+    fn actions(app: &AvAuthApp) -> Vec<&str> {
         app.state
             .ui_actions
             .iter()
