@@ -373,10 +373,15 @@ fn sample_script_compares_the_hash_register() {
         .env("RV_SAMPLE_OUT", out.path())
         .output()
         .unwrap();
-    let text = String::from_utf8_lossy(&o.stdout);
+    let text = format!(
+        "{}\n--- stderr ---\n{}",
+        String::from_utf8_lossy(&o.stdout),
+        String::from_utf8_lossy(&o.stderr)
+    );
     assert!(o.status.success(), "{}", text);
+    // the 22 synthetic media samples of examples/sample/evidence (expected_hashes.csv)
     assert!(
-        text.contains("hashes.csv matches expected_hashes.csv (3 files"),
+        text.contains("hashes.csv matches expected_hashes.csv (22 files"),
         "{}",
         text
     );
