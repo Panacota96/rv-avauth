@@ -322,6 +322,12 @@ fn known_extension(ext: &str) -> bool {
     SIGNATURES.iter().any(|s| s.extensions.contains(&ext))
 }
 
+/// Extensions the inventory compares with the content signature: every extension of the signature table plus
+/// common text types. A file with another (or no) extension never gets EXTENSION_MISMATCH.
+pub fn compared_extension(ext: &str) -> bool {
+    known_extension(ext) || matches!(ext, "txt" | "csv" | "log" | "xml" | "json" | "html")
+}
+
 /// Analyzes one item from its name, size and first bytes (no second read of the evidence).
 pub fn analyze(file_name: &str, size: u64, head: &[u8]) -> Analysis {
     let extension = std::path::Path::new(file_name)
@@ -341,9 +347,7 @@ pub fn analyze(file_name: &str, size: u64, head: &[u8]) -> Analysis {
                     .with("detected", s.name)
                     .with("extension", ext),
             );
-        } else if known_extension(ext)
-            || matches!(ext, "txt" | "csv" | "log" | "xml" | "json" | "html")
-        {
+        } else if compared_extension(ext) {
             findings.push(
                 Finding::new("EXTENSION_MISMATCH", Severity::Medium)
                     .with("detected", s.name)

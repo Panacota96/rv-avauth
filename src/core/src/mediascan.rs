@@ -323,8 +323,22 @@ pub fn analyze_media(ctx: &AnalyzeCtx) -> Analysis {
             ..base
         };
     }
-    // The container check replaces the generic signature check for media files.
-    findings.retain(|f| f.code != "EXTENSION_MISMATCH");
+    // A media extension is judged by the container check (CONTAINER_EXTENSION_MISMATCH), which replaces the
+    // generic signature check. Any other extension the inventory compares (.pdf, .txt, .docx…) keeps the
+    // generic EXTENSION_MISMATCH, added here when the inventory's signature table did not see the container
+    // (e.g. an MP3 without an ID3 tag).
+    let ext = base.extension.clone().unwrap_or_default();
+    if Container::from_extension(&ext).is_some() {
+        findings.retain(|f| f.code != "EXTENSION_MISMATCH");
+    } else if crate::analyzer::compared_extension(&ext)
+        && !findings.iter().any(|f| f.code == "EXTENSION_MISMATCH")
+    {
+        findings.push(
+            Finding::new("EXTENSION_MISMATCH", Severity::Medium)
+                .with("detected", info.container.name())
+                .with("extension", ext.clone()),
+        );
+    }
     findings.extend(signals.iter().map(finding));
     details["media_analysis"] = json!("completed");
     details["bytes_parsed_read"] = json!(bytes_read);
@@ -490,6 +504,46 @@ mod tests {
         let dir2 = tempfile::tempdir().unwrap();
         let b = run(&sample("evidence/voice-reencoded.m4a"), dir2.path(), &opts);
         assert!(b.findings.iter().any(|f| f.code == "REFERENCE_DIFFERS"));
+    }
+
+    /// Media renamed with a non-media extension keeps EXTENSION_MISMATCH; a media extension is judged by
+    /// CONTAINER_EXTENSION_MISMATCH instead; an extension the inventory does not compare gives neither.
+    #[test]
+    fn renamed_media_keeps_an_extension_finding() {
+        let dir = tempfile::tempdir().unwrap();
+        let cases = [
+            // (sample, new name, EXTENSION_MISMATCH expected, CONTAINER_EXTENSION_MISMATCH expected)
+            ("tone-original.wav", "minutes.pdf", true, false),
+            ("camera-original.mov", "photo.txt", true, false),
+            // No ID3 tag: the inventory signature table does not see this MP3, mediascan adds the finding.
+            ("memo-spliced.mp3", "report.docx", true, false),
+            ("tone-original.wav", "song.mp3", false, true),
+            ("tone-original.wav", "capture.raw", false, false),
+        ];
+        for (i, (src, name, generic, container)) in cases.iter().enumerate() {
+            let sub = dir.path().join(i.to_string());
+            std::fs::create_dir_all(sub.join("item")).unwrap();
+            let p = sub.join(name);
+            std::fs::copy(sample(&format!("evidence/{src}")), &p).unwrap();
+            let a = run(&p, &sub.join("item"), &DomainOptions::default());
+            let codes: Vec<&str> = a.findings.iter().map(|f| f.code.as_str()).collect();
+            assert_eq!(
+                codes.contains(&"EXTENSION_MISMATCH"),
+                *generic,
+                "{name}: {codes:?}"
+            );
+            assert_eq!(
+                codes.contains(&"CONTAINER_EXTENSION_MISMATCH"),
+                *container,
+                "{name}: {codes:?}"
+            );
+            assert_eq!(
+                codes.iter().filter(|c| **c == "EXTENSION_MISMATCH").count(),
+                usize::from(*generic),
+                "{name}: one finding, not two"
+            );
+            assert_eq!(a.details["media_analysis"], "completed", "{name}");
+        }
     }
 
     #[test]
