@@ -174,7 +174,10 @@ physical transfers. This is a working aid, not legal advice: check it against th
 | `item_started` | each item | index, size, modified time |
 | `item_hashed` | each item | digests, bytes read, `mtime_unchanged` |
 | `item_error` | unreadable item | error message |
-| `item_analyzed` | each item | detected type, extension, findings, status |
+| `analysis_started` | each readable item, before the second read | index, isolation (`worker_process` for the CLI/GUI, `in_process` in unit tests) |
+| `output_written` | each file the analysis wrote | item index, kind (`structure`, `metadata`, `reference_comparison`, `partial_output`, `unlisted_output`), relative file, bytes, digests |
+| `output_missing` | a listed output could not be read back | kind, file, error |
+| `item_analyzed` | each item | detected type (container), extension, findings, status, `analysis` = media status, container, worker outcome (limits, elapsed, network isolation), second-read re-hash, reference files (path, SHA-256) |
 | `item_cancelled` / `run_cancelled` | on cancel | processed count |
 | `duplicate_group` | after the loop | hash, item indexes |
 | `hash_register_written` | | digests of `hashes.csv` |

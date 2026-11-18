@@ -4,7 +4,11 @@ Start **RV AvAuth** from the Start menu (installer) or double-click `rv-avauth-g
 No installation of other software is required; the app also runs on virtual machines without a graphics
 driver (software rendering).
 
-![Main window](images/gui-main.png)
+![Main window after analysing the synthetic samples with a reference file](images/gui-main.png)
+
+The screenshot is rendered headless from a real run of the core on `examples/sample/evidence` with
+`examples/sample/reference/camera-reference.mov`:
+`cargo run -p rv-avauth-gui --example gui_screenshot -- docs/images/gui-main.png en`.
 
 ## Workflow
 
@@ -12,7 +16,8 @@ driver (software rendering).
 flowchart TD
     A["1 · Evidence<br/>Add files… / Add folder… / drag & drop / type a path"] --> B
     B["2 · Hash algorithms<br/>tick 1 or 2 (a third box is disabled)"] --> C
-    C["3 · Reports<br/>language · output folder · examiner · case ID"] --> D
+    C["3 · Reports<br/>language · output folder · examiner · case ID"] --> M
+    M["5 · Media analysis<br/>reference file · time limit per file"] --> D
     D["Start review"] --> E{"Running"}
     E -->|progress bar, elapsed, remaining| E
     E -->|Cancel| F["Partial reports + run_cancelled in the log"]
@@ -27,10 +32,11 @@ flowchart TD
 | **2. Hash algorithms** | Tick one or two. When two are ticked, the others are disabled; you cannot untick the last one. |
 | **3. Reports** | Language (English, Español, Français, or all three), output folder, examiner name (defaults to your Windows user), optional case ID. |
 | **4. Trust** | *Trusted timestamp* (on by default; TSA address editable), *Certificate…* to pick your `.p12`/`.pfx` and its password (kept in memory only, never logged) so every PDF is signed, and *Jurisdiction* (Colombia / France) for the custody form. |
+| **5. Media analysis** | *Reference file*: optional file known to come from the claimed device or app (same model, app version and settings); every media item is compared with it (`REFERENCE_CONSISTENT` / `REFERENCE_DIFFERS`), and its SHA-256 is recorded. *Time limit per file*: 60, 120 (default), 600 or 1800 s for the isolated worker process (the CLI also offers `--worker-memory`). MP4/MOV/M4A/3GP, WAV, Ogg/Opus and MP3 are analysed; no ENF, content or speaker analysis. |
 | **Interface language** | Top-right selector: English, Español, Français. Changes every label immediately; independent of the report language. |
 | **Start review / Cancel** | Start is enabled once evidence is added. During a run the settings are locked and the button becomes *Cancel*. |
 | **Progress** | Bar by bytes processed, `files done / total`, elapsed time (always moving) and estimated time remaining. The file being read is shown below. |
-| **Result** | Counts by severity, **Open report** (statistics page in your language) and **Open log folder**. |
+| **Result** | Counts by severity, *Results per file* (number, name, status and the first finding codes of each file), **Open report** (statistics page in your language) and **Open log folder**. |
 
 ## Case folder
 
@@ -55,7 +61,9 @@ Your choices are part of the evidence record. Before the run starts, the GUI wri
 | Change hash selection | `ui_hash_selection_changed` |
 | Change language / subfolders | `ui_language_changed`, `ui_recursive_changed` |
 | Opened by RV Hub with `--case-dir` | `ui_case_dir_from_launcher`, `ui_case_dir_changed` (or `ui_launch_argument_ignored`) |
-| Press Start | `ui_start_clicked` (final settings) |
+| Change the reference file | `ui_reference_changed` (path, or null when cleared) |
+| Change the time limit per file | `ui_worker_timeout_changed` (seconds) |
+| Press Start | `ui_start_clicked` (final settings, including `reference` and `worker_timeout_s`) |
 | Press Cancel | `item_cancelled`, `run_cancelled` |
 
 Errors during the run appear under **Warnings** and in the log as `item_error`.
@@ -64,5 +72,5 @@ therefore no log — exists yet.
 
 ## Same results as the command line
 
-The GUI calls the same engine as `rv-avauth scan`. A GUI run with the same evidence, algorithms and language gives
+The GUI calls the same engine as `rv-avauth analyze`. A GUI run with the same evidence, algorithms and language gives
 identical hashes and findings; `environment.json` records `"frontend": "gui"` and the settings used.

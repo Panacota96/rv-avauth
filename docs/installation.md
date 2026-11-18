@@ -166,9 +166,11 @@ tree).
 <!-- forge:domain -->
 ### 5c. Native libraries
 
-None. RV AvAuth is two self-contained executables: hashing, the PDF writer, the RFC 3161 client and the CMS
-signer are compiled in (pure Rust crates, listed in the SBOM), and the C runtime is linked statically
-(`.cargo/config.toml`). There is no DLL to verify or to keep next to the executables.
+None. RV AvAuth is two self-contained executables: hashing, the media container parsers (own pure-Rust code, no
+FFmpeg or codec library), the PDF writer, the RFC 3161 client and the CMS signer are compiled in (pure Rust crates,
+listed in the SBOM), and the C runtime is linked statically (`.cargo/config.toml`). There is no DLL to verify or to
+keep next to the executables. The media analysis runs in a child process of the same executable
+(`rv-avauth.exe worker …`); antivirus tools may show it as a second `rv-avauth.exe` process during a run.
 <!-- /forge:domain -->
 
 ## 6. First-run self-test and sample
@@ -179,8 +181,8 @@ rv-avauth self-test
 ```
 
 `self-test` prints `PASS` for md5, sha1, sha256, sha512, sha3-256 and blake3 (known answers for `"abc"`), exit code
-0. It tests the hash implementations only. Then run the synthetic sample, which exercises type detection,
-duplicates, reports and the audit chain:
+0. It tests the hash implementations only. Then run the synthetic sample, which exercises the media parsers,
+the worker isolation, reports and the audit chain:
 
 ```powershell
 # portable zip (script included): self-test, sample scan, verify-log, hashes.csv vs expected_hashes.csv
@@ -189,25 +191,44 @@ duplicates, reports and the audit chain:
 # installer (no script installed): run it by hand into a temporary folder
 $app = "$env:LOCALAPPDATA\Programs\Rakvor\RV AvAuth"
 $out = Join-Path $env:TEMP "rv-avauth-check"
-rv-avauth scan -i "$app\examples\sample\evidence" --hash sha256,md5 --out $out --progress none --no-timestamp
+rv-avauth analyze -i "$app\examples\sample\evidence" --hash sha256,md5 --out $out --progress none --no-timestamp
 $LASTEXITCODE                                  # 0
 rv-avauth verify-log (Get-ChildItem "$out\logs" | Select-Object -Last 1).FullName   # OK … chain intact
 ```
 
 <!-- forge:domain -->
-Expected summary: **3 items, 0 errors, findings high 0, medium 1, low 0, info 2**, exit code 0 (one
-`EXTENSION_MISMATCH` for `foto-vacaciones.jpg`, one `DUPLICATE` pair `acta.txt` / `acta-copia.txt`). The SHA-256
-column of `hashes.csv` must equal `examples\sample\expected_hashes.csv` (computed independently with Python):
+Expected summary: **22 items, 0 errors, findings high 0, medium 21, low 11, info 33**, exit code 0 (the codes per
+file are listed in `examples\sample\expected_findings.json` and in [examples/README.md](../examples/README.md)). The
+SHA-256 column of `hashes.csv` must equal `examples\sample\expected_hashes.csv` (computed independently with Python):
 
 | File | Size | SHA-256 |
 | --- | --: | --- |
-| `acta-copia.txt` | 61 | `80e089ad6704c831e386b430adf92c5f5b72ec4428566d3580660e103c183c3c` |
-| `acta.txt` | 61 | `80e089ad6704c831e386b430adf92c5f5b72ec4428566d3580660e103c183c3c` |
-| `foto-vacaciones.jpg` | 112 | `42503ebb0f9892b30b72e11cfa0cbf5bcb5d60f667d611fa9598c9b4e835c643` |
+| `bad-fmt.wav` | 8044 | `2a9fdfaaa676bcb23a6287a8d47dbf67054cabbc29e776e68c6a1faea497607c` |
+| `broken-box.mp4` | 508 | `8b8222a8797a6a43e5a55e4c354d2bbc80483bf0e53da98cf692fbe41825dad7` |
+| `camera-edited.mov` | 8947 | `bd4eea53f0f3f205a7730de196c72d794439d62f775a8a72e0eb92e8752481fc` |
+| `camera-original.mov` | 8908 | `254d29eb4597ceb24ef61eb80be8f6003b57775b771ef0d7f6650b4a10e13968` |
+| `camera-renamed.mp4` | 8908 | `30c64e55f76721ade9f5f79c6de056f6ba8c8b9a05986ee0a0ec24298f43ff3b` |
+| `chained.ogg` | 698 | `d6f24a015f98a75ae21009f955752b25482adfc392028a23b1efb59d349d74e5` |
+| `duration-mismatch.mp4` | 8605 | `4592193872ccae97969bfa5d9e413cd37cc5fea72ab0ccad2ccc8aaf8717cd88` |
+| `empty.wav` | 0 | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
+| `memo-converted.mp3` | 8860 | `652bcc31f2d8d7cf1b14a395f5c902faf8e8c346ee75c1d203023f829d7da538` |
+| `memo-lame.mp3` | 8845 | `0960d7790b02a2f9b7465122b6bb07ea92544fcf135d9f056bf7695804d36848` |
+| `memo-spliced.mp3` | 6550 | `96a830ca6182210917e31da8834da7601c119d4d02ae33e73dba3da83a04c2c8` |
+| `memo-truncated.mp3` | 4370 | `4317a691facb577a74ca21c4499abf02c2c44b33efb8ba436ce4a247d3b41123` |
+| `notes.txt` | 52 | `21a46d32a5b74e8723bfdfeaa46ed3aff34b7560a3ea7c2de894f260eda246a8` |
+| `renamed-wave.mp3` | 8044 | `6447655c6c4cf7c218dca1c7d4c7eb8fea996a57d594aed5dd2b7c6a6a157a87` |
+| `tone-appended.wav` | 10092 | `abcf6e36ca959922734e7b51847d989ed7eca6eda1880f0f1321c8aea4d94b41` |
+| `tone-edited-audacity.wav` | 8710 | `9f52333f186f5e8010d76f9680e5d21670787823f9a073641ecab73dfbb99415` |
+| `tone-original.wav` | 8710 | `08dd5a8ddd337dde79ef6eca4ff954b4a2f2cb713f363f3b840f0b10b0a499b3` |
+| `tone-truncated.wav` | 4044 | `8aef037ccc0ff27c472096d1b668f9f1461b653a45b10a60a99eabb15ffb6f19` |
+| `voice-note-spliced.opus` | 339 | `7c364dc0a198c8f1ed2758ddb310018eae099da5171998d314a1ed0242a46326` |
+| `voice-note-truncated.opus` | 223 | `b3bb0f569d1d464f71ed285efcca67d7c783ba5d48620df7f6856b74c0b1e863` |
+| `voice-note.opus` | 243 | `29976f39fbcd39bde3daad92b3c0034300f4b9c68abedfcd64a1aaa94b68c68e` |
+| `voice-reencoded.m4a` | 8655 | `1548b79cff855b81beb60c5fa692eef09a6dd1eb7cf7287c8e171b44bddbee6a` |
 
 `run.ps1` / `run.sh` make this comparison themselves: they read the tool's `logs\<RUN-ID>\hashes.csv` and compare
 size, SHA-256 and MD5 of every file with `expected_hashes.csv`, print
-`hashes.csv matches expected_hashes.csv (3 files: size, SHA-256, MD5)` and exit 3 on any difference. For the
+`hashes.csv matches expected_hashes.csv (22 files: size, SHA-256, MD5)` and exit 3 on any difference. For the
 installer (no script installed), compare the table above with `$out\logs\<RUN-ID>\hashes.csv`, or run
 `python tests\verify_chain.py <log folder>` from the source tree, which re-hashes every file of `hashes.csv` and every
 output the audit log records.

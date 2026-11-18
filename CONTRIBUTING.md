@@ -53,13 +53,15 @@ python tests/verify_chain.py <some run>/logs/<RUN-ID>             # optional cro
 ```mermaid
 sequenceDiagram
     participant Dev
-    participant analyzer as core/analyzer.rs
+    participant media as media/src/signals.rs
     participant i18n as i18n/*.json
+    participant gen as tests/make_samples.py
     participant tests
-    Dev->>analyzer: emit Finding::new("CODE", severity).with(params)
+    Dev->>media: emit Signal::new("CODE", severity).with(params) (conservative severity, no high)
     Dev->>i18n: title / shows / does_not_prove in en, es, fr
-    Dev->>tests: unit test in analyzer + CLI test if exit code changes
-    Dev->>Dev: CHANGELOG via commit message, docs/reports.md table
+    Dev->>gen: a synthetic sample that triggers it; regenerate expected_findings.json
+    Dev->>tests: media sample test + CLI end-to-end (samples.rs); the i18n coverage test checks the wording
+    Dev->>Dev: CHANGELOG via commit message, docs/reports.md and docs/theory.md B12 tables
 ```
 
 ## Code of conduct
