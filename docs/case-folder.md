@@ -1,21 +1,21 @@
 # Case folder
 
 Every Rakvor tool can work alone (`--out DIR`). In a real engagement the tools share **one case folder**
-(`--case-dir`): rv-avauth, the **intake** tool, registers each evidence file once and gives it an evidence id
-(`E0001`, `E0002`, …); every later **analysis** tool re-hashes each file, compares it with that registry and links
-its own audit chain to the case. A reviewer can then follow one item from intake to the last report, across tools,
+(`--case-dir`): rv-hashinv, the **intake** tool, registers each evidence file once and gives it an evidence id
+(`E0001`, `E0002`, …); every later **analysis** tool — rv-avauth is one — re-hashes each file, compares it with that
+registry and links its own audit chain to the case. A reviewer can then follow one item from intake to the last report, across tools,
 and check that nothing changed in between.
 
 ```mermaid
 flowchart LR
-    E[(Evidence<br/>read-only)] --> H["rv-avauth (intake)<br/>--case-dir CASE"]
+    E[(Evidence<br/>read-only)] --> H["rv-hashinv (intake)<br/>--case-dir CASE"]
     H --> R[["evidence/registry.json<br/>E0001…: path, size, hashes"]]
     H --> CL[["case-log.jsonl<br/>hash-chained"]]
-    R --> P["analysis tool<br/>--case-dir CASE"]
+    R --> P["rv-avauth (analysis)<br/>--case-dir CASE"]
     P -->|re-hash + compare| R
     P --> CL
-    H --> RH["runs/rv-avauth/RUN-ID/"]
-    P --> RP["runs/&lt;tool&gt;/RUN-ID/"]
+    H --> RH["runs/rv-hashinv/RUN-ID/"]
+    P --> RP["runs/rv-avauth/RUN-ID/"]
 ```
 
 The contract (schemas, events, rules) is the same in the Rust and Python profiles, and a case written by one is
@@ -41,10 +41,11 @@ JSON schemas: [case.schema.json](../schemas/case.schema.json) and [registry.sche
 ## Using it
 
 ```bash
-# 1. Open the case and register the evidence (creates case.json; --case and --jurisdiction are needed only now)
-rv-avauth scan -i D:\evidence -r --case-dir E:\CASE-014 --case CASE-014 --jurisdiction fr
-# 2. Re-examine some registered items later (or run an analysis tool with the same --case-dir)
-rv-avauth scan --case-dir E:\CASE-014 --evidence E0001,E0002
+# 1. The intake tool opens the case and registers the evidence (creates case.json)
+rv-hashinv scan -i D:\evidence -r --case-dir E:\CASE-014 --case CASE-014 --jurisdiction fr
+# 2. rv-avauth analyses every registered item (or only some with --evidence), verifying each against the registry
+rv-avauth analyze --case-dir E:\CASE-014
+rv-avauth analyze --case-dir E:\CASE-014 --evidence E0001,E0002
 # 3. Check the whole case before handing it over
 rv-avauth verify-case E:\CASE-014
 ```
@@ -55,19 +56,19 @@ item.
 
 | Option | Meaning |
 | --- | --- |
-| `--case-dir DIR` | Work in this case folder (created when it has no `case.json`). `--out` is not used. |
+| `--case-dir DIR` | Work in this case folder (normally created by rv-hashinv; a folder without `case.json` is created with `--case`). `--out` is not used. |
 | `--case ID` | Names the case at creation; afterwards it must match `case.json` (or be left out). |
 | `--jurisdiction co\|fr` | Set at creation; later runs use the case's jurisdiction for custody forms. |
-| `--evidence E0001,E0007` | Examine these registered items (no `--input` needed). |
-| no `--input` | Every registered item is examined. |
+| `--evidence E0001,E0007` | Analyse these registered items (no `--input` needed). |
+| no `--input` | Every registered item is analysed. |
 
 ## Roles
 
-The role is one constant: `CASE_ROLE` (`src/core/src/lib.rs`) and `"case_role"` in `.forge.json`. The reference
-rv-avauth is `intake`; a tool scaffolded from it is `analysis`. Both behaviours live in the shared code and are
+The role is one constant: `CASE_ROLE` (`src/core/src/lib.rs`) and `"case_role"` in `.forge.json`. rv-avauth is
+`analysis`; the intake tool is rv-hashinv. Both behaviours live in the shared code and are
 tested in both profiles.
 
-| | Intake (rv-avauth) | Analysis (later tools) |
+| | Intake (rv-hashinv) | Analysis (rv-avauth) |
 | --- | --- | --- |
 | Registry | Registers every successfully hashed item | Never writes it |
 | Same path, same content | Keeps the existing id (`already_registered`) | `evidence_verified_against_case` (match) |
@@ -79,23 +80,9 @@ tested in both profiles.
 user picked a disjoint set, SHA-256 (or the registry's algorithm) is added — or replaces the second choice, since
 the two-algorithm limit still holds — and the change is audited as `case_algorithm_added`.
 
-### Called by an analysis tool
-
-An analysis tool can run the intake for the examiner: `rv-pdfauth analyze … --case-dir CASE --intake hashinv`
-starts this executable as `rv-avauth scan … --case-dir CASE --progress jsonl` with the same evidence and settings,
-then analyses. Nothing changes on this side: the hash inventory, reports, registry and audit log are rv-avauth's own,
-and its run is an ordinary entry in the case log. The calling tool records this executable's path, version and
-SHA-256 in its own audit log. The interface it relies on — `--version` printing `rv-avauth X.Y.Z`, the
-`scan` options, the JSON Lines events (`run_started`, `progress`, `run_finished`) and exit codes 0/3 meaning
-"finished" — is therefore a compatibility promise: change it only with a major version.
-
-```mermaid
-flowchart LR
-    P["rv-pdfauth<br/>--intake hashinv"] -->|"scan --case-dir … --progress jsonl"| H["rv-avauth"]
-    H -->|"registry + hash reports"| C[("Case folder")]
-    H -->|"progress, run id, exit code"| P
-    P -->|"analysis, verified against the registry"| C
-```
+An analysis mismatch does not stop the media analysis: the item's reports then carry both the case finding and the
+media findings, and the audit log shows the registry comparison (`evidence_verified_against_case`) before
+`analysis_started`.
 
 ## Events
 

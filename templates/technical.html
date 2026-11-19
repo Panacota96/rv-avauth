@@ -38,6 +38,56 @@
   <div class="kv"><div>{{ t.shows }}</div><div>{{ f.shows }}</div><div>{{ t.does_not_prove }}</div><div>{{ f.does_not_prove }}</div></div>
 </div>{% endfor %}{% else %}<p>{{ t.none }}</p>{% endif %}
 
+{% if media %}
+<h2>{{ t.media_analysis }}</h2>
+<div class="kv">
+  <div>{{ t.status }}</div><div>{{ media.status_label }}</div>
+  {% if media.rehash %}<div>{{ t.media_rehash }}</div><div class="mono">{{ media.rehash }}</div>{% endif %}
+  <div>{{ t.media_worker }}</div><div>{{ media.worker }}</div>
+  {% for r in media.overview %}<div>{{ r.label }}</div><div class="mono">{{ r.value }}</div>{% endfor %}
+</div>
+{% if media.streams %}<h3>{{ t.media_streams }}</h3>
+<table><tr><th>#</th><th>{{ t.media_kind }}</th><th>{{ t.media_codec }}</th><th>{{ t.media_params }}</th><th>{{ t.media_timescale }}</th><th>{{ t.media_duration_ms }}</th><th>{{ t.media_samples }}</th><th>{{ t.media_handler }}</th></tr>
+{% for r in media.streams %}<tr><td>{{ r.index }}</td><td>{{ r.kind }}</td><td class="mono">{{ r.codec }}</td><td>{{ r.params }}</td><td>{{ r.timescale }}</td><td>{{ r.duration_ms }}</td><td>{{ r.samples }}</td><td>{{ r.handler }} {{ r.compressor }}</td></tr>{% endfor %}
+</table>{% if media.streams_more %}<p>{{ media.streams_more }}</p>{% endif %}{% endif %}
+{% if media.times %}<h3>{{ t.media_times }}</h3>
+<table><tr><th>{{ t.media_source }}</th><th>UTC</th><th>{{ t.media_raw }}</th><th>{{ t.media_origin }}</th></tr>
+{% for r in media.times %}<tr><td class="mono">{{ r.source }}</td><td class="mono">{{ r.utc }}</td><td class="mono">{{ r.raw }}</td><td>{{ r.origin }}</td></tr>{% endfor %}
+</table>{% if media.times_more %}<p>{{ media.times_more }}</p>{% endif %}{% endif %}
+{% if media.durations %}<h3>{{ t.media_durations }}</h3>
+<table><tr><th>{{ t.media_source }}</th><th>ms</th><th>{{ t.media_kind }}</th></tr>
+{% for r in media.durations %}<tr><td class="mono">{{ r.source }}</td><td>{{ r.ms }}</td><td>{{ r.kind }}</td></tr>{% endfor %}
+</table>{% endif %}
+{% if media.encoders %}<h3>{{ t.media_encoders }}</h3>
+<table><tr><th>{{ t.media_source }}</th><th>{{ t.media_value }}</th><th>{{ t.media_label }}</th><th>{{ t.media_category }}</th></tr>
+{% for r in media.encoders %}<tr><td class="mono">{{ r.source }}</td><td class="mono">{{ r.value }}</td><td>{{ r.label }}</td><td>{{ r.category }}</td></tr>{% endfor %}
+</table>{% endif %}
+{% if media.device_claims %}<h3>{{ t.media_device_claims }}</h3>
+<ul>{% for c in media.device_claims %}<li class="mono">{{ c }}</li>{% endfor %}</ul>{% endif %}
+{% if media.tags %}<h3>{{ t.media_tags }}</h3>
+<table><tr><th>{{ t.media_source }}</th><th>{{ t.media_key }}</th><th>{{ t.media_value }}</th></tr>
+{% for r in media.tags %}<tr><td>{{ r.source }}</td><td class="mono">{{ r.key }}</td><td>{{ r.value }}</td></tr>{% endfor %}
+</table>{% if media.tags_more %}<p>{{ media.tags_more }}</p>{% endif %}{% endif %}
+{% if media.anomalies %}<h3>{{ t.media_anomalies }}</h3>
+<table><tr><th>{{ t.media_kind }}</th><th>{{ t.media_offset }}</th><th>{{ t.media_detail }}</th></tr>
+{% for r in media.anomalies %}<tr><td>{{ r.kind }}</td><td class="mono">{{ r.offset }}</td><td>{{ r.detail }}</td></tr>{% endfor %}
+</table>{% if media.anomalies_more %}<p>{{ media.anomalies_more }}</p>{% endif %}{% endif %}
+{% if media.tree %}<h3>{{ t.media_tree }}</h3>
+<table><tr><th>{{ t.media_box }}</th><th>{{ t.media_offset }}</th><th>{{ t.size }}</th><th>{{ t.media_detail }}</th></tr>
+{% for r in media.tree %}<tr><td class="mono">{{ r.indent }}{{ r.kind }}</td><td class="mono">{{ r.offset }}</td><td class="mono">{{ r.size }}</td><td>{{ r.note }}</td></tr>{% endfor %}
+</table>{% if media.tree_more %}<p>{{ media.tree_more }}</p>{% endif %}{% endif %}
+{% for tbl in media.reference_tables %}<h3>{{ t.media_reference }}: {{ tbl.reference }}</h3>
+<table><tr><th>{{ t.media_aspect }}</th><th>{{ t.media_evidence }}</th><th>{{ t.media_reference }}</th><th></th></tr>
+{% for r in tbl.rows %}<tr><td>{{ r.aspect }}</td><td class="mono">{{ r.evidence }}</td><td class="mono">{{ r.reference }}</td><td>{{ r.same }}</td></tr>{% endfor %}
+</table>{% endfor %}
+{% if media.references %}<div class="kv">{% for r in media.references %}<div class="mono">{{ r.path }}</div><div class="mono">{{ r.status }} · SHA-256 {{ r.sha256 }}</div>{% endfor %}</div>{% endif %}
+{% for n in media.notes %}<p class="note">{{ n }}</p>{% endfor %}
+{% endif %}
+{% if outputs %}<h2>{{ t.extracted_files }}</h2>
+<table><tr><th>{{ t.media_file }}</th><th>{{ t.media_kind }}</th><th>{{ t.size }}</th><th>{{ t.hashes }}</th></tr>
+{% for o in outputs %}<tr><td class="mono">{{ o.rel_path }}</td><td>{{ o.kind }}</td><td>{{ o.bytes }}</td><td class="mono">{{ o.digests }}</td></tr>{% endfor %}
+</table>{% endif %}
+
 <h2>{{ t.method }}</h2>
 <p>{{ t.method_text }}</p>
 

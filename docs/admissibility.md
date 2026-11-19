@@ -64,7 +64,7 @@ PRIS content.
 | Key | Feature | Where it is implemented (file / command) |
 | --- | --- | --- |
 | F1 | Read-only evidence access (software level), one sequential read per file | `File::open` in [src/core/src/run.rs](../src/core/src/run.rs); `mtime_unchanged` in `item_hashed`; symbolic links never followed ([src/core/src/input.rs](../src/core/src/input.rs)) |
-| F2 | Hashing with 1 or 2 algorithms (md5, sha1, sha256, sha512, sha3-256, blake3) in one read | [src/core/src/hash.rs](../src/core/src/hash.rs); `scan --hash`; `logs/<RUN-ID>/hashes.csv` |
+| F2 | Hashing with 1 or 2 algorithms (md5, sha1, sha256, sha512, sha3-256, blake3) in one read | [src/core/src/hash.rs](../src/core/src/hash.rs); `analyze --hash`; `logs/<RUN-ID>/hashes.csv` |
 | F3 | SHA-256 hash-chained audit log + independent verifier | [src/core/src/audit.rs](../src/core/src/audit.rs); `rv-avauth verify-log`; [tests/verify_chain.py](../tests/verify_chain.py) |
 | F4 | `environment.json`: tool, compiler and dependency versions, OS, host, user, command line | [src/core/src/env.rs](../src/core/src/env.rs), [src/core/build.rs](../src/core/build.rs) |
 | F5 | RFC 3161 timestamp of the audit chain head | [src/core/src/trust.rs](../src/core/src/trust.rs); `--tsa-url`, `--no-timestamp`, `rv-avauth timestamp` |
@@ -83,9 +83,17 @@ PRIS content.
 | F18 | Shared case folder: evidence registry, hash-chained case log, cross-linked run chains, `verify-case` | [src/core/src/case.rs](../src/core/src/case.rs); `--case-dir`, `--evidence`, `rv-avauth verify-case`; [case-folder.md](case-folder.md) |
 
 <!-- forge:domain -->
-Domain features named below: **type detection by magic bytes** (15 signatures, `EXTENSION_MISMATCH`,
-`EXECUTABLE_CONTENT`), **duplicate detection** by primary digest, and the **intake role**: this tool writes the
-case registry that every later tool verifies against ([theory.md B4–B5, B7](theory.md#b4-type-detection-by-magic-bytes-and-extension-mismatch)).
+
+Domain features named below: **container structure analysis** of MP4/MOV/M4A/3GP, WAV, Ogg and MP3 with bounded
+parsers in an isolated worker process (second read re-hashed against the first), **encoder-trace classification**
+(editors, online converters, transcoders, messengers vs the device the metadata claims), **time and duration
+consistency**, the **reference comparison** (`--reference`), and the **analysis role** in the case folder: every
+item is verified against the intake tool's registry before it is analysed
+([theory.md B2, B4, B7](theory.md#b4-media-container-parsing-and-signals)). The findings are signals for an
+examiner; the tool states no conclusion on authenticity. **To be verified**: how each jurisdiction treats
+structural audio/video authentication without content analysis (ENF, critical listening) — v0.1 does not perform
+the latter.
+
 <!-- /forge:domain -->
 
 ## 2. Evidence lifecycle and where each control sits
@@ -509,13 +517,17 @@ Rakvor management.
 | G25 | Cross-profile reproducibility of item numbering — **closed**: both profiles sort items by the normalised path, bytewise (UTF-8); the cross-profile test compares the numbering, and CI verifies a case folder written by the Python profile ([tests/golden/](../tests/golden/regenerate.py)) without the other repository; kept for numbering | — | — | — | — |
 
 <!-- forge:domain -->
-Gaps specific to this tool's domain (inventory and type detection):
+
+Gaps specific to this tool's domain (structural audio/video authentication):
 
 | ID | Gap | Affected | Mitigation now | Remedy | Owner |
 | --- | --- | --- | --- | --- | --- |
-| G5 | Unknown error rates and coverage of type detection (15 signatures; 2-byte `MZ` and GZIP magics; containers typed by their outer format) | CO-P15, CO-P16, CO-J8, ISO-17, US-6 | Present type findings as observations; confirm executables with a PE/ELF parser and mismatches with a format-aware tool | Labelled corpus; publish FP/FN rates per signature and release; extend the table | Eng. |
-| G23 | Files without an extension, or with an extension unknown to the table, are never compared (a program named `invoice` gives no finding) | CO-P15, ISO-4 | Review the `detected_type` column of the statistics report for executables regardless of findings | Flag executables whatever the extension | Eng. |
-| G26 | Sample scripts checking the tool's output — **closed**: `run.sh` and `run.ps1` compare the tool's `hashes.csv` (size, SHA-256, MD5) with `expected_hashes.csv` and fail on any difference; kept for numbering | — | — | — | — |
+| G5 | Unknown error rates: every check was validated on synthetic files only; thresholds (5 % / 200 ms durations, 60 s track times, 26 h tag dates) and the encoder and handler-name tables are not measured on real device recordings (**to be verified**) | CO-P15, CO-P16, CO-J8, ISO-17, US-6 | Present findings as observations; state the limitation `THRESHOLDS_NOT_VALIDATED_ON_DEVICE_CORPUS`; confirm any finding relied on with a second method | Labelled corpus per device family and app version; publish FP/FN rates per finding and release | Eng. |
+| G23 | No ENF, critical listening, spectral or speaker analysis; content splices without a structural trace are invisible | CO-P15, ISO-4, US-6 | Printed limitations `NO_ENF_ANALYSIS`, `NO_CONTENT_OR_SPEAKER_ANALYSIS`; refer to an audio/video examiner for content analysis | ENF module (planned), with its own validation | Eng. |
+| G24 | Container coverage: FLAC, Matroska/WebM, AVI, raw AAC/AMR are hashed but not examined | ISO-4 | Limitation `CONTAINER_COVERAGE_LIMITED`; examine those files with another tool | Add parsers with fuzz tests | Eng. |
+| G25 | Reference comparison depends on the reference's provenance (same model, app version and settings) | CO-P16, US-6 | Examiner documents the reference's origin; its SHA-256 is in every report | Reference library with provenance records | Examiner |
+| G26 | Sample scripts checking the tool's output — **closed**: `run.sh` and `run.ps1` compare the tool's `hashes.csv` (size, SHA-256, MD5) with `expected_hashes.csv` and fail on any difference; `src/cli/tests/samples.rs` checks every finding against `expected_findings.json` | — | — | — | — |
+
 <!-- /forge:domain -->
 
 ## Examiner checklist before filing a report
@@ -564,12 +576,17 @@ Gaps specific to this tool's domain (inventory and type detection):
     G14).
 
 <!-- forge:domain -->
+
 Domain steps for this tool:
 
-18. **Every `UNREADABLE` item** was re-acquired or explained; unreadable items are not registered in the case.
-19. **Every `EXECUTABLE_CONTENT`** was confirmed with a PE/ELF parser and handled as potentially hostile; every
-    `EXTENSION_MISMATCH` relied on was confirmed by opening the file with a suitable tool.
-20. **Duplicates** relied on were computed with SHA-256 (or stronger) as the primary algorithm.
+18. **Every `PARSER_FAILED` item** was re-run with higher `--worker-timeout` / `--worker-memory` or examined with
+    another method; its integrity record (hashes) is complete even though its container was not.
+19. **Every editing, converter or transcoder trace relied on** was put in context: how the file was obtained, which
+    app or service handed it over (many embed FFmpeg), and whether a first-generation file exists on the device.
+20. **Every time or duration finding relied on** was checked against the device clock and time zone, and the
+    reference file (if any) was documented: model, app version, settings, who made it and when.
+21. The report states that no ENF, content or speaker analysis was performed (limitations printed on every page).
+
 <!-- /forge:domain -->
 
 ## Sources

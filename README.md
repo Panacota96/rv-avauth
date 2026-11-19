@@ -10,13 +10,13 @@
 ![License](https://img.shields.io/badge/license-Rakvor%20source--auditable-6B00FF)
 ![Windows 10/11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6)
 
-![Main window after inventorying the sample evidence](docs/images/gui-main.png)
+![Main window after analysing the synthetic samples](docs/images/gui-main.png)
 
 ```mermaid
 flowchart LR
     A[/"File, folder<br/>or list"/] --> B["Hash<br/>1–2 algorithms, one read"]
-    B --> C["Detect real type<br/>(signatures)"]
-    C --> D["Findings<br/>mismatch · executable · empty · duplicate"]
+    B --> C["Worker process<br/>re-hash · bounded parse<br/>MP4/MOV · WAV · Ogg · MP3"]
+    C --> D["Signals<br/>structure · encoders · times<br/>durations · reference"]
     D --> E[["Reports<br/>statistics + per item"]]
     B -.-> L[("Audit log<br/>hash-chained")]
     C -.-> L
@@ -39,12 +39,13 @@ flowchart LR
 | | |
 | --- | --- |
 | **Two ways to use it** | `rv-avauth` (command line) and `rv-avauth-gui` (Windows 10/11 desktop app). Same engine, same results. |
-| **Single or bulk** | One file, many files, whole folders (`--recursive`) or a list file (`--input-list`). |
-| **Hashing** | Choose 1 or 2 of md5, sha1, sha256, sha512, sha3-256, blake3. Both are computed in the same read. |
-| **Progress** | Progress bar, elapsed time, throughput and estimated time remaining (CLI and GUI). Cancel at any time. |
-| **Auditable** | Every action goes to `logs/<RUN-ID>/audit.jsonl`, where each entry carries the hash of the previous one. `verify-log` detects any edit. |
-| **Reports** | A statistics report per run, and for **each file** a technical review and a customer summary — HTML, PDF and JSON, in English, Spanish or French. |
-| **Case folder** | `--case-dir` links the Rakvor tools of one case: rv-avauth (the intake tool) registers each file as `E0001`, `E0002`, … so later tools prove they examined bit-identical copies; `verify-case` checks the whole folder. See [docs/case-folder.md](docs/case-folder.md). |
+| **Containers** | MP4 / MOV / M4A / 3GP (ISO BMFF box tree, brands, mvhd/tkhd/mdhd, hdlr, stsd, udta/meta/ilst/keys), WAV (RIFF/RF64, fmt, data, LIST/INFO, bext), Ogg (pages, CRC-32, granules, Opus/Vorbis headers and vendor), MP3 (ID3v1/v2, Xing/Info/LAME, every frame). |
+| **Signals, not verdicts** | 37 media findings — container/extension mismatch, sizes that do not add up, trailing data, truncation, Ogg CRC/sequence/granule breaks, sync gaps, parameter changes, editing/transcoding/online-converter traces vs the claimed device, inconsistent times, duration mismatches, metadata absent — each with *what it shows* and *what it does not prove*. No ENF, content or speaker analysis in v0.1. |
+| **Reference comparison** | `--reference FILE`: 11 structural aspects compared with a file known to come from the claimed device or app. |
+| **Safe on hostile files** | Pure-Rust parsers (`#![forbid(unsafe_code)]`, every read bounded by the real file size), one worker process per file with time and memory limits; a crash costs one item (`PARSER_FAILED`), never the run. |
+| **Auditable** | Every action goes to `logs/<RUN-ID>/audit.jsonl` (hash-chained); every file written (reports, `structure.json`, `metadata.json`) is hashed and re-checked by `verify-log`. |
+| **Reports** | Statistics per run; per file a technical review (container overview, streams, times, durations, encoders, tags, anomalies, structure tree) and a customer summary — HTML, PDF and JSON, in English, Spanish or French; custody forms (Colombia / France). |
+| **Case folder** | `--case-dir`: every item is verified against the registry of the intake tool (rv-hashinv) before it is analysed; `verify-case` checks the whole folder. See [docs/case-folder.md](docs/case-folder.md). |
 
 ## Install
 
@@ -68,12 +69,15 @@ cargo build --release
 # Check the build first: every algorithm against published test vectors
 rv-avauth self-test
 
-# Review a folder with SHA-256 + MD5, reports in Spanish, for case CASE-2026-014
-rv-avauth scan -i D:\evidence -r --hash sha256,md5 --lang es --case CASE-2026-014 --actor "Ana Ruiz"
+# Analyse a folder of recordings with SHA-256 + MD5, reports in Spanish, for case CASE-2026-014
+rv-avauth analyze -i D:\evidence -r --hash sha256,md5 --lang es --case CASE-2026-014 --actor "Ana Ruiz"
 
 # French case: custody form in French + English, every PDF signed with your certificate
 $env:RV_SIGN_PASSWORD = Read-Host -AsSecureString | ConvertFrom-SecureString -AsPlainText
-rv-avauth scan -i D:\evidence -r --jurisdiction fr --sign-cert C:\certs\examiner.p12 --lang fr
+rv-avauth analyze -i D:\evidence -r --jurisdiction fr --sign-cert C:\certs\examiner.p12 --lang fr
+
+# Compare with a file known to come from the claimed phone (same model, app version, settings)
+rv-avauth analyze -i D:\evidence\IMG_0042.MOV --reference D:\refs\IMG_0040.MOV
 
 # Later, prove the log was not altered (also checks the RFC 3161 timestamp and its TSA signature;
 # add --tsa-ca <TSA roots.pem> to validate the TSA certificate chain)
@@ -101,6 +105,7 @@ flowchart TB
     IT --> T["technical.json / .LANG.html / .LANG.pdf"]
     IT --> S["summary.json / .LANG.html / .LANG.pdf"]
     IT --> K["custody.json / custody.es|fr + .en .html/.pdf"]
+    IT --> M["structure.json · metadata.json · reference-comparison.json"]
     LOGS --> L5["timestamp-N.tsr — RFC 3161 token"]
 ```
 
@@ -128,22 +133,23 @@ flowchart TB
 | [docs/case-folder.md](docs/case-folder.md) | Shared case folder: evidence registry, case log, intake vs analysis tools, `verify-case` |
 | [docs/development.md](docs/development.md) | Building, testing, CI/CD and releasing |
 | [docs/release-process.md](docs/release-process.md) | Windows packages, code signing and GitHub releases, step by step |
-| [docs/adr/](docs/adr/) | Architecture decisions (e.g. why Rust) |
+| [docs/adr/](docs/adr/) | Architecture decisions: [0001 why Rust](docs/adr/0001-language.md), [0002 v0.1 scope and assumptions](docs/adr/0002-scope.md) |
 
 ## Project layout
 
 ```text
 rv-avauth/
 ├── src/
-│   ├── core/      engine library: input, hashing, analysis, audit log, reports (never prints)
+│   ├── media/     rv-avauth-media: bounded container parsers, encoder table, signals, reference
+│   ├── core/      engine library: input, hashing, media analysis + worker, audit log, reports (never prints)
 │   ├── cli/       rv-avauth command line (clap)
 │   └── gui/       rv-avauth-gui desktop app (egui); state.rs holds all testable rules
 ├── templates/     HTML report templates + CSS (Jinja2/minijinja compatible)
 ├── i18n/          report wording: en.json, es.json, fr.json
 ├── schemas/       JSON Schemas of the three report kinds
 ├── docs/          documentation (Mermaid diagrams render on GitHub)
-├── tests/         cross-language checks (Python verifier of the audit chain)
-├── examples/      sample evidence + run scripts + expected hashes
+├── tests/         sample generator (make_samples.py), Python verifiers of the audit chain and reports
+├── examples/      synthetic sample evidence + reference + expected findings and hashes + run scripts
 ├── packaging/     Windows installer (Inno Setup)
 └── .github/       CI and release workflows
 ```

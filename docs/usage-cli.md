@@ -4,7 +4,7 @@
 
 ```mermaid
 flowchart LR
-  A[rv-avauth] --> B[scan]
+  A[rv-avauth] --> B[analyze]
   A --> C[verify-log]
   A --> D[self-test]
   A --> T[timestamp]
@@ -21,24 +21,48 @@ flowchart LR
 
 ```text
 DESCRIPTION:
-  rv-avauth reviews a single file, a whole folder (bulk) or a list of files. For every file it:
+  rv-avauth looks for signals that an audio or video file was edited, re-encoded or re-wrapped
+  after it was recorded. It reviews a single file, a whole folder (bulk) or a list of files. For
+  every file it:
     1. opens the file read-only and hashes it in one pass with one or two algorithms;
-    2. detects the real file type from its signature (magic bytes);
-    3. flags empty files, extensions that do not match the content, programs hidden under
-       another name and duplicated content;
-    4. writes a technical report and a customer-friendly summary (HTML, PDF and JSON).
-  Each run also writes a statistics report and an audit trail under <OUT>/logs/<RUN-ID>/.
-  Every action is appended to a hash-chained log that `rv-avauth verify-log` can check later.
+    2. identifies the container from its content; MP4/MOV/M4A/3GP (ISO BMFF), WAV (RIFF/WAVE,
+       RF64), Ogg (Opus, Vorbis) and MP3 files, by content or extension, are examined in an
+       isolated worker process (time and memory limits) that re-hashes the bytes it reads and
+       compares them with the first pass;
+    3. turns what it saw into findings (signals with a severity, what they show and what they do
+       not prove) and writes a technical review and a customer summary (HTML, PDF and JSON).
+  MEDIA CHECKS (bounded pure-Rust parsers; no size read from the file is trusted):
+    - Container vs extension, ISO BMFF brand vs extension, content that is not a container.
+    - Structure: box/chunk/tag sizes that do not add up, data after the logical end, truncated
+      last box/chunk/page/frame, several mdat boxes, moov after mdat (layout), Ogg CRC-32,
+      page sequence and granule continuity, chained Ogg streams, MP3 frame-sync gaps and
+      parameter changes, contradictory WAVE format fields.
+    - Encoder traces: ilst/udta (©too, ©enc, ©swr), QuickTime keys, hdlr names, stsd vendor and
+      compressor, ID3 TSSE/TENC, Xing/Info/LAME tag, Opus/Vorbis vendor and ENCODER, WAVE INFO
+      ISFT and bext; classified as editor, online converter, transcoder (FFmpeg/Lavf),
+      messenger, encoder library or device, and compared with the device the metadata names.
+    - Times: mvhd/tkhd/mdhd creation and modification (1904 epoch, UTC), tag dates, the
+      file-system date; durations declared by headers vs computed from samples or frames.
+    - Reference comparison (--reference): container, brands, top-level layout, codecs, audio
+      parameters, video size, handler names, encoder strings, tag keys, timescales and
+      chunk/frame layout against a file known to come from the claimed device or app.
+  NOT DONE in this version: ENF (electric network frequency), decoding or listening to the
+  content, speaker or deepfake analysis.
+  Each run also writes a statistics report and an audit trail under <OUT>/logs/<RUN-ID>/. Every
+  action is appended to a hash-chained log that `rv-avauth verify-log` can check later. The
+  result is a set of signals for an examiner, never a verdict that a file is authentic or edited.
 
-  CASE FOLDER (--case-dir): Rakvor tools share one folder per case. rv-avauth is the intake tool: it
-  registers every hashed file in evidence/registry.json (evidence ids E0001, E0002, ...) so later
-  tools
-  can prove they examined bit-identical copies. `rv-avauth verify-case <CASE>` checks it all.
+  CASE FOLDER (--case-dir): Rakvor tools share one folder per case. rv-hashinv, the intake tool,
+  registers each evidence file once (evidence ids E0001, E0002, ...). rv-avauth is an analysis
+  tool: before analysing a file it re-hashes it and verifies it against that registry, so the
+  reports prove the examined file is bit-identical to the registered one. `rv-avauth verify-case
+  <CASE>` checks the whole case.
 
 Usage: rv-avauth <COMMAND>
 
 Commands:
-  scan         Hash, check and report on a file, a folder or a list of files
+  analyze      Look for signals of editing or re-encoding in audio and video files and write the
+               reports
   verify-log   Verify an audit log (audit.jsonl): edited, deleted or re-ordered entries, and
                truncation
   self-test    Check every hash algorithm against known-answer test vectors
@@ -56,25 +80,48 @@ Options:
 Run `rv-avauth <COMMAND> --help` for the options, examples and exit codes of each command.
 ```
 
-## rv-avauth scan
+## rv-avauth analyze
 
 ```text
 DESCRIPTION:
-  rv-avauth reviews a single file, a whole folder (bulk) or a list of files. For every file it:
+  rv-avauth looks for signals that an audio or video file was edited, re-encoded or re-wrapped
+  after it was recorded. It reviews a single file, a whole folder (bulk) or a list of files. For
+  every file it:
     1. opens the file read-only and hashes it in one pass with one or two algorithms;
-    2. detects the real file type from its signature (magic bytes);
-    3. flags empty files, extensions that do not match the content, programs hidden under
-       another name and duplicated content;
-    4. writes a technical report and a customer-friendly summary (HTML, PDF and JSON).
-  Each run also writes a statistics report and an audit trail under <OUT>/logs/<RUN-ID>/.
-  Every action is appended to a hash-chained log that `rv-avauth verify-log` can check later.
+    2. identifies the container from its content; MP4/MOV/M4A/3GP (ISO BMFF), WAV (RIFF/WAVE,
+       RF64), Ogg (Opus, Vorbis) and MP3 files, by content or extension, are examined in an
+       isolated worker process (time and memory limits) that re-hashes the bytes it reads and
+       compares them with the first pass;
+    3. turns what it saw into findings (signals with a severity, what they show and what they do
+       not prove) and writes a technical review and a customer summary (HTML, PDF and JSON).
+  MEDIA CHECKS (bounded pure-Rust parsers; no size read from the file is trusted):
+    - Container vs extension, ISO BMFF brand vs extension, content that is not a container.
+    - Structure: box/chunk/tag sizes that do not add up, data after the logical end, truncated
+      last box/chunk/page/frame, several mdat boxes, moov after mdat (layout), Ogg CRC-32,
+      page sequence and granule continuity, chained Ogg streams, MP3 frame-sync gaps and
+      parameter changes, contradictory WAVE format fields.
+    - Encoder traces: ilst/udta (©too, ©enc, ©swr), QuickTime keys, hdlr names, stsd vendor and
+      compressor, ID3 TSSE/TENC, Xing/Info/LAME tag, Opus/Vorbis vendor and ENCODER, WAVE INFO
+      ISFT and bext; classified as editor, online converter, transcoder (FFmpeg/Lavf),
+      messenger, encoder library or device, and compared with the device the metadata names.
+    - Times: mvhd/tkhd/mdhd creation and modification (1904 epoch, UTC), tag dates, the
+      file-system date; durations declared by headers vs computed from samples or frames.
+    - Reference comparison (--reference): container, brands, top-level layout, codecs, audio
+      parameters, video size, handler names, encoder strings, tag keys, timescales and
+      chunk/frame layout against a file known to come from the claimed device or app.
+  NOT DONE in this version: ENF (electric network frequency), decoding or listening to the
+  content, speaker or deepfake analysis.
+  Each run also writes a statistics report and an audit trail under <OUT>/logs/<RUN-ID>/. Every
+  action is appended to a hash-chained log that `rv-avauth verify-log` can check later. The
+  result is a set of signals for an examiner, never a verdict that a file is authentic or edited.
 
-  CASE FOLDER (--case-dir): Rakvor tools share one folder per case. rv-avauth is the intake tool: it
-  registers every hashed file in evidence/registry.json (evidence ids E0001, E0002, ...) so later
-  tools
-  can prove they examined bit-identical copies. `rv-avauth verify-case <CASE>` checks it all.
+  CASE FOLDER (--case-dir): Rakvor tools share one folder per case. rv-hashinv, the intake tool,
+  registers each evidence file once (evidence ids E0001, E0002, ...). rv-avauth is an analysis
+  tool: before analysing a file it re-hashes it and verifies it against that registry, so the
+  reports prove the examined file is bit-identical to the registered one. `rv-avauth verify-case
+  <CASE>` checks the whole case.
 
-Usage: rv-avauth scan [OPTIONS]
+Usage: rv-avauth analyze [OPTIONS]
 
 Options:
   -i, --input <PATH>
@@ -163,17 +210,34 @@ Options:
           Default: RV_SIGN_PASSWORD
           Example: --sign-pass-env CERT_PASS
 
+      --reference <FILE>
+          Domain option. Reference file known to come from the claimed device or app (same model,
+          app version and settings), compared with every media item. Repeat for several. Read-only;
+          its SHA-256 is recorded (REFERENCE_CONSISTENT / REFERENCE_DIFFERS).
+          Default: none
+          Example: --reference ref/IMG_0040.MOV
+
+      --worker-timeout <SECS>
+          Seconds a worker process may spend on one file before it is stopped (PARSER_FAILED).
+          Default: 120
+          Example: --worker-timeout 600
+
+      --worker-memory <MB>
+          Memory limit of one worker process in MiB (address space on Linux/macOS, job on Windows).
+          Default: 1024
+          Example: --worker-memory 2048
+
       --case-dir <DIR>
-          Shared case folder that links the Rakvor tools of one case (created with --case if
-          missing).
-          Outputs go to <DIR>/runs/rv-avauth/<RUN-ID>/; every hashed file is registered in
-          <DIR>/evidence/registry.json; the run is recorded in <DIR>/case-log.jsonl.
-          With no --input, every registered item is examined again.
+          Shared case folder that links the Rakvor tools of one case (see docs/case-folder.md).
+          Every item is verified against <DIR>/evidence/registry.json (written by the intake tool,
+          rv-hashinv) before it is analysed; outputs go to <DIR>/runs/rv-avauth/<RUN-ID>/ and the
+          run is recorded in <DIR>/case-log.jsonl. With no --input, every registered item is
+          analysed.
           Default: none (standalone run in --out)
-          Example: --case-dir E:\CASE-014 --case CASE-014
+          Example: --case-dir E:\CASE-014
 
   -E, --evidence <IDS>
-          Registered evidence ids to examine (needs --case-dir), comma-separated or repeated.
+          Registered evidence ids to analyse (needs --case-dir), comma-separated or repeated.
           Default: none (the --input files, or every registered item)
           Example: --evidence E0001,E0007
 
@@ -181,72 +245,88 @@ Options:
           Print help (see a summary with '-h')
 
 EXAMPLES:
-  Review one file (SHA-256, English reports):
-    rv-avauth scan --input evidence/contract.pdf
+  Review one recording (SHA-256, English reports):
+    rv-avauth analyze --input evidence/voice-note.opus
   Review a folder and its subfolders with SHA-256 + MD5, Spanish reports, for case CASE-2026-014:
-    rv-avauth scan -i D:\evidence -r --hash sha256,md5 --lang es --case CASE-2026-014
+    rv-avauth analyze -i D:\evidence -r --hash sha256,md5 --lang es --case CASE-2026-014
   Review the files listed in a text file, reports in the three languages, machine-readable progress:
-    rv-avauth scan --input-list files.txt --lang all --progress jsonl > events.jsonl
+    rv-avauth analyze --input-list files.txt --lang all --progress jsonl > events.jsonl
+  Compare with a file known to come from the claimed phone (same model, app and settings):
+    rv-avauth analyze -i IMG_0042.MOV --reference ref/IMG_0040.MOV
+  Long recordings on a slow disk: more time and memory per worker:
+    rv-avauth analyze -i E:\audio -r --worker-timeout 900 --worker-memory 2048
   Verify the audit log afterwards:
     rv-avauth verify-log rakvor-out/logs/<RUN-ID>/audit.jsonl
-  Open a case folder and register the evidence (intake), then verify the whole case:
-    rv-avauth scan -i D:\evidence -r --case-dir E:\CASE-014 --case CASE-014 --jurisdiction fr
+  Analyse every item registered in a case folder (after rv-hashinv intake), then verify the case:
+    rv-avauth analyze --case-dir E:\CASE-014
     rv-avauth verify-case E:\CASE-014
-  Re-examine two registered items of the case:
-    rv-avauth scan --case-dir E:\CASE-014 --evidence E0001,E0002
+  Analyse two registered items of the case only:
+    rv-avauth analyze --case-dir E:\CASE-014 --evidence E0001,E0002
 
 EXIT CODES:
   0    Completed; no high-severity finding.
-  1    Runtime error (input not found, output not writable, case log locked, ...).
-       See the audit log.
+  1    Runtime error (input or reference not found, output not writable, case log locked,
+       ...). See the audit log.
   2    Usage error (unknown option, more than two hash algorithms, unsupported language).
-       With --case-dir: folder of another case or schema, --case missing when creating the
-       case, unknown evidence id.
-  3    Completed with at least one high-severity finding (e.g. unreadable file, program under
-       another name, evidence that differs from the case registry), or the case folder fails
-       verification (nothing is written to it).
+       With --case-dir: folder of another case or schema, unknown evidence id.
+  3    Completed with at least one high-severity finding (a file whose analysis could not
+       complete, evidence that changed during the run or differs from the case registry, a
+       program under another name), or the case folder fails verification (nothing is
+       written to it).
   130  Cancelled with Ctrl+C. Partial reports and the cancellation are written to the audit log.
 
 FILES WRITTEN:
-  <OUT>/logs/<RUN-ID>/audit.jsonl         Hash-chained log of every action (one JSON object per
-  line).
-  <OUT>/logs/<RUN-ID>/audit.log           The same actions, human-readable.
-  <OUT>/logs/<RUN-ID>/hashes.csv          Hash register: index, path, size, digests, status.
-  <OUT>/logs/<RUN-ID>/environment.json    Tool and dependency versions, OS, host, user, command
-  line.
-  <OUT>/reports/<RUN-ID>/statistics.json  Run statistics (+ statistics.<LANG>.html and .pdf).
-  <OUT>/reports/<RUN-ID>/items/<NNNNN>-<NAME>/technical.json|.<LANG>.html|.<LANG>.pdf   Technical
-  review.
-  <OUT>/reports/<RUN-ID>/items/<NNNNN>-<NAME>/summary.json|.<LANG>.html|.<LANG>.pdf     Customer
-  summary.
-  <OUT>/reports/<RUN-ID>/items/<NNNNN>-<NAME>/custody.json|.<es|fr>.html|.pdf|.en.html|.pdf  Custody
-  form.
-  <OUT>/logs/<RUN-ID>/timestamp-<SEQ>.tsr|.json  RFC 3161 token for the audit chain head.
-  With --case-dir <CASE>, logs/ and reports/ go to <CASE>/runs/rv-avauth/<RUN-ID>/, plus:
-  <CASE>/case.json                        Case id, jurisdiction, creation (written once).
-  <CASE>/case-log.jsonl                   Hash-chained case log of every tool: case_created,
-                                          run_started, evidence_registered, run_finished.
-  <CASE>/evidence/registry.json|.csv      Evidence registry: E0001..., path, size, hashes.
+  <OUT>/logs/<RUN-ID>/audit.jsonl          Hash-chained log of every action (one JSON object/line).
+  <OUT>/logs/<RUN-ID>/audit.log            The same actions, human-readable.
+  <OUT>/logs/<RUN-ID>/hashes.csv           Hash register: index, path, size, digests, status.
+  <OUT>/logs/<RUN-ID>/environment.json     Tool and dependency versions, OS, host, user, arguments.
+  <OUT>/logs/<RUN-ID>/timestamp-<SEQ>.tsr  RFC 3161 token for the audit chain head (+ .json).
+  <OUT>/reports/<RUN-ID>/statistics.json   Run statistics (+ statistics.<LANG>.html and .pdf).
+  <ITEM> = <OUT>/reports/<RUN-ID>/items/<NNNNN>-<NAME>:
+  <ITEM>/technical.json|.<LANG>.html|.pdf  Technical review (container summary, streams, times,
+                                           durations, encoders, tags, anomalies, structure tree,
+                                           reference comparison, every file written for the item).
+  <ITEM>/summary.json|.<LANG>.html|.pdf    Customer summary.
+  <ITEM>/custody.json|.<es|fr|en>.html|.pdf  Chain-of-custody form.
+  <ITEM>/structure.json                    Full parsed model: box/chunk/page tree with byte offsets,
+                                           streams, times, durations, anomalies (media files).
+  <ITEM>/metadata.json                     Every tag, encoder string, device field and time read.
+  <ITEM>/reference-comparison.json         With --reference: fingerprints and the comparison table.
+  Every file under <ITEM> is hashed with the selected algorithms and recorded in the audit log.
+  With --case-dir <CASE>, logs/ and reports/ go to <CASE>/runs/rv-avauth/<RUN-ID>/, and:
+  <CASE>/case-log.jsonl                    Hash-chained case log of every tool: run_started and
+                                           run_finished of this run are appended to it.
+  <CASE>/case.json                         Case id and jurisdiction (only if the folder is new).
+  The evidence registry (<CASE>/evidence/registry.json) is read, never written, by rv-avauth.
 
 FORENSIC NOTES:
   - Evidence is opened read-only and never modified; modification times are compared before and
-  after.
-  - Work on a verified copy (write-blocked image or export), not on original media.
+    after. Work on a verified copy (write-blocked image or export), not on original media.
+  - Findings are signals, not a verdict: a file without findings is not proven authentic, and a
+    finding does not prove editing. Read "What it does not prove" and the Limitations section.
+  - Media files are analysed in a separate worker process with a time and memory limit; every
+    read of the parsers is bounded by the real file length and fixed caps, so a hostile file
+    costs one item (PARSER_FAILED), never the run or the audit log.
+  - Tags, encoder strings, device names and internal times are written by software and can be
+    forged or removed; re-encoding or a messenger destroys most traces. No ENF, content or
+    speaker analysis is done.
   - Each audit entry stores the SHA-256 of the previous one; editing, deleting or re-ordering any
     line is detected by `verify-log`. Removing the last lines is detected only against a record
     kept outside the log: the RFC 3161 timestamp or, with --case-dir, the case log. Keep the log
     folder with the reports.
-  - A file without findings is not proven authentic; read the Limitations section of each report.
   - MD5 and SHA-1 are accepted for compatibility with older case files; pair them with SHA-256 or
-  BLAKE3.
-  - The chain head is timestamped by an RFC 3161 authority (proves when the log existed). Offline?
-  The run
-    finishes with `timestamp_pending`; run `rv-avauth timestamp <LOG>` later.
+    BLAKE3.
+  - The chain head is timestamped by an RFC 3161 authority (proves when the log existed).
+    Offline? The run finishes with `timestamp_pending`; run `rv-avauth timestamp <LOG>` later.
   - With --sign-cert every PDF is signed with the examiner's certificate; the password is never
-  logged.
-  - Case folder: every tool re-verifies case-log.jsonl and the registry digest before
-    writing, and refuses a broken case (exit 3). Appends happen under case-log.lock; a lock
-    older than 10 minutes is reported as stale and never deleted automatically.
+    logged.
+  - Case folder: every item is compared with the registry (by --evidence id, else by path, else
+    by content) before it is analysed; a different hash is the high finding
+    EVIDENCE_HASH_MISMATCH_WITH_CASE (the analysis still runs), a file not in the registry is
+    EVIDENCE_NOT_IN_CASE_REGISTRY (medium). The case log and registry digest are re-verified
+    before every write; a broken case is refused (exit 3). Appends happen under
+    case-log.lock; a lock older than 10 minutes is reported as stale and never deleted
+    automatically.
   - Each run's audit.jsonl records case_linked (the case-log entry it started from); the case
     log records the run's final audit head, so the two chains vouch for each other.
 ```
@@ -444,7 +524,7 @@ DESCRIPTION:
   Prints what this tool is, what it accepts and how to launch it, validated by
   schemas/describe.schema.json. RV Hub reads it to list the tool, start its GUI on a case
   folder (rv-avauth-gui.exe --case-dir <CASE> [FILES...]) and suggest the tool for a file.
-  Fields: schema, tool, title, version, role (intake), main_verb (scan), accepts
+  Fields: schema, tool, title, version, role (analysis), main_verb (analyze), accepts
   (extensions and signatures; "*" = any file), case_formats, log_formats, cli_exe,
   gui_exe, exit_codes. Nothing is read or written; no audit log is created.
 

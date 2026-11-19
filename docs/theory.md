@@ -27,7 +27,7 @@ collected in [admissibility.md](admissibility.md#consolidated-gap-list). How to 
 - Part A: [A1 What the tool is](#a1-what-the-tool-is-and-is-not) ·
   [A2 Digital fingerprints](#a2-digital-fingerprints-hashes) ·
   [A3 Two fingerprints, one reading](#a3-two-fingerprints-one-reading) ·
-  [A4 What a file really is](#a4-what-a-file-really-is-its-first-bytes) ·
+  [A4 What the container tells](#a4-what-the-container-tells-about-a-recording) ·
   [A5 Identical copies](#a5-identical-copies) ·
   [A6 The case folder](#a6-the-case-folder-one-register-for-the-whole-case) ·
   [A7 The tool's own diary](#a7-the-tools-own-diary-the-audit-log) ·
@@ -38,7 +38,7 @@ collected in [admissibility.md](admissibility.md#consolidated-gap-list). How to 
 - Part B: [B1 Source map](#b1-source-map-and-constants) ·
   [B2 Pipeline](#b2-pipeline-and-reads-of-the-evidence) ·
   [B3 Hashing](#b3-single-pass-dual-hashing) ·
-  [B4 Type detection](#b4-type-detection-by-magic-bytes-and-extension-mismatch) ·
+  [B4 Media containers](#b4-media-container-parsing-and-signals) ·
   [B5 Duplicates](#b5-duplicate-detection-by-digest) ·
   [B6 Audit chain](#b6-the-audit-hash-chain) ·
   [B7 Case folder](#b7-the-case-folder) ·
@@ -56,34 +56,26 @@ collected in [admissibility.md](admissibility.md#consolidated-gap-list). How to 
 <!-- forge:domain -->
 ## A1 What the tool is (and is not)
 
-RV AvAuth is the **intake desk** of a digital investigation. Before anyone examines a file, the tool writes down
-what was received: every file's exact digital fingerprint, its size, what kind of file it really is, and whether
-anything looks wrong (a photo that is really a PDF, a program hidden under another name, an empty file, two
-identical copies). In a case folder it gives each file an evidence number (`E0001`, `E0002`, …) so that every
-later tool can prove it looked at exactly the same bytes.
+RV AvAuth looks at **how an audio or video file is put together** — the "envelope" around the sound or the
+pictures — and at the **names and dates the software wrote into it**. A phone, a recorder app, an editor or a
+converter each leaves its own habits: which boxes it writes and in which order, which software name it stores,
+which clock it uses. When those habits do not fit together (a file that says it comes from a phone but was written
+by an editing program, a duration that does not match the recording, bytes appended after the end), the tool
+writes it down as a **finding**.
 
-It never says "this file is genuine" or "this file is fake". Each observation is written as a **finding** that
-says, in plain words, **what it shows** and **what it does not prove**. The conclusion belongs to a human
-examiner.
+It never listens to the recording and never says "this file is genuine" or "this file is fake". Each finding says,
+in plain words, **what it shows** and **what it does not prove**. Version 0.1 does **not** analyse the electric
+network hum (ENF), the voices, or the content itself. The conclusion belongs to a human examiner.
 
 ```mermaid
 flowchart LR
-    S[("Source<br/>(phone, laptop, export)")] -->|forensic copy| C[("Verified copy")]
-    C -->|read only| T["RV AvAuth<br/>intake"]
-    T --> F["Findings<br/>what it shows / what it does not prove"]
-    T --> R[["Evidence register<br/>E0001, E0002, …"]]
-    T --> L[("Audit log<br/>every step, sealed")]
-    R --> A["Later tools<br/>re-check each file"]
-    F --> E["Examiner's opinion"]
-    L --> E
+    S[("Source<br/>(phone, recorder, export)")] -->|forensic copy| C[("Verified copy")]
+    C -->|read only| T["RV AvAuth"]
+    T --> F["Findings<br/>shows / does not prove"]
+    T --> R[["Reports<br/>HTML · PDF · JSON"]]
+    T -.-> L[("Audit log")]
+    F --> X{{"Examiner's<br/>conclusion"}}
 ```
-
-| The tool can tell you | The tool cannot tell you |
-| --- | --- |
-| The exact fingerprint of every file it received, and that later copies are identical | That the copy it received equals the original source |
-| That a file's content does not match its name (e.g. a PDF called `.jpg`) | Why it was renamed, or by whom |
-| That two files have identical content | Who copied them, or when |
-| Every action it performed, in a log that shows any later edit | Whether the workstation's clock was right |
 <!-- /forge:domain -->
 
 ## A2 Digital fingerprints (hashes)
@@ -92,7 +84,7 @@ A **hash** is a short code computed from every byte of a file — a fingerprint.
 fingerprint changes completely; keep the file identical and the fingerprint is the same on any computer, with any
 correct program.
 
-Real example (SHA-256), using the sample file `examples/sample/evidence/acta.txt` (61 bytes):
+Real example (SHA-256), using the sample file `tests/fixtures/inventory/acta.txt` (61 bytes):
 
 | Text (last line of the file) | SHA-256 fingerprint |
 | --- | --- |
@@ -111,25 +103,29 @@ therefore describe exactly the same bytes. More than two methods at once are ref
 fast on very large folders.
 
 <!-- forge:domain -->
-## A4 What a file really is: its first bytes
+## A4 What the container tells about a recording
 
-The name of a file (`holiday.jpg`) is a label anyone can change. The **first bytes** of the content are harder to
-fake by accident: most formats start with a fixed "signature" — PDF documents start with `%PDF-`, JPEG photos with
-the bytes `FF D8 FF`, Windows programs with `MZ`. The tool compares the label with the signature.
+An MP4, MOV, M4A, WAV, Ogg or MP3 file is a **container**: a sequence of labelled blocks ("boxes", "chunks",
+"pages", "frames"), each saying how long it is. The sound or the video sits inside one of them; the others
+describe it (format, duration, dates, the software that wrote the file).
 
-The sample `foto-vacaciones.jpg` ("holiday photo") starts with `%PDF-1.4`: it is a PDF renamed as a photo, so the
-tool reports *Extension does not match content*. A program hidden under a document name is reported with higher
-severity, because opening it could run it.
+The tool reads every block label and size, without decoding the sound, and checks that the pieces fit:
 
-Limits a court should know: the tool knows 15 common signatures (unknown types are reported as unknown, not as
-suspicious); a file without an extension is not compared; and some signatures are very short (2 bytes), so an
-ordinary text that happens to start with `MZ` would be reported as a program.
+- **The envelope matches the name**: a `.mp3` that is really a WAV, or a `.mp4` with a QuickTime label.
+- **The sizes add up**: a block that claims more bytes than its parent or the file, a file cut short, bytes
+  after the end, an Ogg page whose checksum is wrong, page numbers that jump, a recording whose sample rate
+  changes in the middle (typical of two recordings glued together).
+- **The software is consistent**: the names the writing software left (for example "Lavf" for FFmpeg,
+  "Audacity", "online-audio-converter.com", "LAME") are compared with the device the metadata names.
+- **The dates and durations agree**: the creation dates of the movie and its tracks, date tags, the file
+  system date, the duration the header announces and the duration the samples really last.
 
-## A5 Identical copies
+With a **reference file** that certainly comes from the claimed phone or app (same model, version and
+settings), the tool compares eleven structural aspects of both files side by side.
 
-When two files have the same fingerprint, their contents are identical, whatever their names. The tool groups
-them and reports *Duplicate content*. In the sample, `acta.txt` and `acta-copia.txt` are one such pair. A
-duplicate is information, not a problem: copies are normal. It does not say which copy came first.
+Limits a court should know: every one of these traces can also have an innocent cause (a copy, a conversion
+for sharing, a messenger, a buggy writer); software names and dates can be forged or removed; and the checks
+were validated on synthetic files only (see [ADR 0002](adr/0002-scope.md)).
 <!-- /forge:domain -->
 
 ## A6 The case folder: one register for the whole case
@@ -207,12 +203,17 @@ record that accompanies, but does not replace, the official form of the police, 
 A file without findings is **not** proven authentic. It only means that the checks this tool applies found
 nothing. Every report prints these limitations:
 
-- Type detection uses a limited table of common file signatures; unknown types are reported as unknown, not as
-  suspicious.
+- Type detection uses a limited table of common file signatures; unknown types are reported as unknown, not as suspicious.
 - Modification times come from the file system of the examined copy and may differ from the original source.
 - A result without findings does not prove that a file is authentic or unaltered before acquisition.
-- A trusted timestamp proves the audit log existed in this exact form at the stated time; it does not prove that
-  the examined copy matches the original source.
+- A trusted timestamp proves the audit log existed in this exact form at the stated time; it does not prove that the examined copy matches the original source.
+- No electric network frequency (ENF) analysis is done in this version: the hum of the mains grid is not extracted or compared with grid records.
+- Audio and video content is never decoded: no listening, waveform, spectral, splice-in-content, deepfake or speaker analysis is performed. Findings come only from container structure and metadata.
+- Tags, encoder strings, device names and internal times are written by software and can be forged, copied or removed; a re-encode or a messenger usually destroys most of them.
+- Encoder strings are classified with a small built-in table (FFmpeg/Lavf, common editors, online converters, encoder libraries); unknown strings are listed but not classified.
+- Only ISO BMFF (MP4/MOV/M4A/3GP), RIFF/WAVE, Ogg (Opus/Vorbis) and MP3 are parsed; FLAC, Matroska/WebM, AVI, raw AAC/AMR and others are not examined beyond hashing.
+- Tolerances (durations 5 % and 200 ms, header times 60 s, tag dates 26 h) and the handler-name table were tested on synthetic files only, not yet on a corpus of real device recordings.
+- A reference comparison is only as good as the reference: it must come from the same device model, app version and recording settings, and its provenance must be documented by the examiner.
 <!-- /forge:domain -->
 
 ---
@@ -237,9 +238,19 @@ nothing. Every report prints these limitations:
 <!-- forge:domain -->
 | Domain process | Implementation | Key constants |
 | --- | --- | --- |
-| Type detection, extension mismatch, executables, empty files | [src/core/src/analyzer.rs](../src/core/src/analyzer.rs) | 15 signatures; text extensions `txt csv log xml json html` |
-| Duplicates, intake registration | [src/core/src/report/mod.rs](../src/core/src/report/mod.rs) `duplicate_groups`; [src/core/src/run.rs](../src/core/src/run.rs) `register_items` | primary (first) algorithm; size > 0 |
-| Role in the case folder | [src/core/src/lib.rs](../src/core/src/lib.rs) `CASE_ROLE` | `Intake` |
+| Routing: media candidate or inventory | [src/core/src/analyzer.rs](../src/core/src/analyzer.rs) `analyze_item`, [src/core/src/mediascan.rs](../src/core/src/mediascan.rs) `is_media_candidate` | container by content (`sniff`) or by media extension |
+| Worker isolation | [src/core/src/worker.rs](../src/core/src/worker.rs) | protocol `rv-avauth-worker/1`; default 120 s, 1024 MiB; stdout cap 64 MiB; stderr tail 4 KiB |
+| Bounded reads | [src/media/src/source.rs](../src/media/src/source.rs) | read window 256 KiB; every read ≤ file length |
+| Parser limits | [src/media/src/model.rs](../src/media/src/model.rs) `limits` | nodes 4 000; depth 16; structure 4 MiB; tags 512 (512 characters each); chunks 10 000; pages 2 000 000; frames 2 000 000; resync scan 1 MiB; 50 anomalies listed per kind; stts entries 1 000 000 |
+| ISO BMFF | [src/media/src/bmff.rs](../src/media/src/bmff.rs) | epoch 1904-01-01 UTC (2 082 844 800 s before 1970) |
+| RIFF/WAVE | [src/media/src/riff.rs](../src/media/src/riff.rs) | bext ≥ 346 bytes (602 + coding history) |
+| Ogg | [src/media/src/ogg.rs](../src/media/src/ogg.rs) | CRC-32 polynomial 0x04C11DB7, init 0; Opus granule rate 48 kHz; header packets ≤ 256 KiB |
+| MP3 | [src/media/src/mp3.rs](../src/media/src/mp3.rs) | frame length L3 = 144·bitrate/rate (+pad) for MPEG-1, 72·bitrate/rate for MPEG-2/2.5 |
+| Encoder classification | [src/media/src/encoders.rs](../src/media/src/encoders.rs) | substring table (first match wins); exact handler names; vendor fourccs |
+| Signals and thresholds | [src/media/src/signals.rs](../src/media/src/signals.rs) | durations 5 % and 200 ms; track time 60 s; modification before creation 2 s; tag and file-system dates 26 h |
+| Reference comparison | [src/media/src/reference.rs](../src/media/src/reference.rs) | 11 aspects; digits ignored in encoder strings |
+| Duplicates | [src/core/src/report/mod.rs](../src/core/src/report/mod.rs) `duplicate_groups` | primary (first) algorithm; size > 0 |
+| Role in the case folder | [src/core/src/lib.rs](../src/core/src/lib.rs) `CASE_ROLE` | `Analysis` |
 <!-- /forge:domain -->
 
 The core never prints; the CLI ([src/cli/src/main.rs](../src/cli/src/main.rs)) and the GUI
@@ -252,39 +263,34 @@ same audit actions, findings and reports.
 ```mermaid
 sequenceDiagram
     autonumber
-    participant R as run.rs
+    participant R as run.rs (parent)
     participant A as audit.jsonl
     participant C as case folder
     participant E as Evidence (read-only)
-    participant O as reports folder
+    participant W as worker (child)
+    participant O as item folder
     R->>C: verify case log + registry, append run_started (under lock)
     R->>A: run_started, case_linked, ui_* (GUI), environment_recorded, inputs_resolved
     loop every item
         R->>A: item_started (size, mtime)
-        R->>E: File::open, 1 MiB chunks, 1–2 digests + first 4 KiB
-        R->>A: item_hashed (digests, bytes_read, mtime_unchanged)
-        R->>A: item_analyzed (type, extension, findings, status)
+        R->>E: read 1: File::open, 1 MiB chunks, 1–2 digests + first 4 KiB
+        R->>A: item_hashed, evidence_verified_against_case (case folder)
+        R->>A: analysis_started (isolation)
+        R->>W: worker --in --item-dir --opts --expect-digest --fs-modified
+        W->>E: read 2: re-hash, then bounded random reads by the parsers
+        W->>O: structure.json, metadata.json, reference-comparison.json
+        W-->>R: Analysis JSON on stdout (or crash / timeout / memory limit)
+        R->>A: output_written × n (digests), item_analyzed (findings, analysis summary)
     end
-    R->>C: register items, write registry, append evidence_registered (under lock)
-    R->>A: evidence_registered ×N, duplicate_group, hash_register_written
-    R->>O: per-item reports, then item_reports_written ×N
-    R->>A: timestamp_obtained / timestamp_pending, statistics_report_written, run_finished
-    R->>C: run_finished with the final audit head (under lock)
+    R->>A: duplicate_group, hash_register_written, item_reports_written × N
+    R->>A: statistics_report_written, run_finished, timestamp_obtained
+    R->>C: append run_finished (audit head), under lock
 ```
 
-The evidence is read **once**, sequentially, with `File::open` (read-only access). The type check uses the first
-4 096 bytes kept during that same read, so there is no second read and no window in which the bytes hashed and
-the bytes examined could differ. The modification time is read before and after hashing and compared
-(`mtime_unchanged` in `item_hashed`); a change means the file was being written during the read.
-
-Ordering facts an opposing expert may test:
-
-- Registration happens **after** all items are hashed and **before** duplicates are computed, so a cancelled run
-  still registers the items it finished.
-- The timestamp is requested after the last `item_reports_written` and **before** the statistics report, so the
-  token covers every evidence digest, finding and item-report digest, but not the statistics report or
-  `run_finished` (both are written after it; see [B8](#b8-rfc-3161-trusted-timestamp)).
-- A wrong certificate password stops the run (`run_failed`) before any evidence byte is read.
+The evidence is read **twice** for a media item: once by the parent for hashing, once by the worker, which hashes
+the whole file again with the run's primary algorithm before parsing and records
+`evidence_rehash = {algorithm, first_pass, second_pass, bytes, match}`. A difference is the high finding
+`EVIDENCE_CHANGED_DURING_ANALYSIS`. Only the parent writes the audit log; a worker that crashes costs one item.
 <!-- /forge:domain -->
 
 ## B3 Single-pass dual hashing
@@ -331,86 +337,103 @@ hash_reader(r, algos)                                        src/core/src/hash.r
   use `bytes_read`. A difference between the two means the file changed size while it was being read.
 
 <!-- forge:domain -->
-## B4 Type detection by magic bytes and extension mismatch
+## B4 Media container parsing and signals
 
-### Signature table ([analyzer.rs](../src/core/src/analyzer.rs) `SIGNATURES`, first match wins)
+### Container identification ([lib.rs](../src/media/src/lib.rs) `sniff`, first match wins)
 
-| # | Detected type | Offset | Magic bytes | Expected extensions | Executable |
-| --: | --- | --: | --- | --- | :-: |
-| 1 | PDF document | 0 | `25 50 44 46 2D` (`%PDF-`) | pdf | |
-| 2 | PNG image | 0 | `89 50 4E 47 0D 0A 1A 0A` | png | |
-| 3 | JPEG image | 0 | `FF D8 FF` | jpg jpeg jpe jfif | |
-| 4 | GIF image | 0 | `47 49 46 38` (`GIF8`) | gif | |
-| 5 | ZIP / Office Open XML | 0 | `50 4B 03 04` (`PK..`) | zip docx xlsx pptx odt ods jar apk epub | |
-| 6 | OLE2 (legacy Office, MSG) | 0 | `D0 CF 11 E0 A1 B1 1A E1` | doc xls ppt msg | |
-| 7 | Windows executable (PE) | 0 | `4D 5A` (`MZ`) | exe dll sys scr com efi | yes |
-| 8 | Linux executable (ELF) | 0 | `7F 45 4C 46` | so bin elf o | yes |
-| 9 | SQLite database | 0 | `SQLite format 3` + `00` | db sqlite sqlite3 | |
-| 10 | 7-Zip archive | 0 | `37 7A BC AF 27 1C` | 7z | |
-| 11 | RAR archive | 0 | `52 61 72 21 1A 07` | rar | |
-| 12 | GZIP archive | 0 | `1F 8B` | gz tgz | |
-| 13 | Windows event log (EVTX) | 0 | `ElfFile` + `00` | evtx | |
-| 14 | Windows registry hive | 0 | `72 65 67 66` (`regf`) | dat hve | |
-| 15 | MP4 / QuickTime video | 4 | `66 74 79 70` (`ftyp`) | mp4 m4v mov m4a 3gp heic | |
+| Container | Test on the first bytes | Extensions that claim it |
+| --- | --- | --- |
+| RIFF/WAVE | `RIFF` or `RF64` at 0 and `WAVE` at 8 | wav wave bwf rf64 |
+| Ogg | `OggS` at 0 | ogg oga ogv opus spx ogx |
+| ISO BMFF | `ftyp` at 4, or `moov`/`mdat`/`wide`/`free`/`skip`/`pnot` at 4 with size 1 or ≥ 8 | mp4 m4v m4a m4b m4p mov qt 3gp 3g2 3gpp f4v heic heif avif mj2 |
+| MP3 | `ID3` at 0, or a valid MPEG layer III header at 0 whose next frame header follows at the computed length | mp3 mp2 mpga |
 
-### Annotated example: `examples/sample/evidence/foto-vacaciones.jpg` (112 bytes)
+A file whose content is none of these but whose name has one of the extensions is `MEDIA_NOT_RECOGNISED`; the
+inventory checks of the forge (signature table, `EXTENSION_MISMATCH`) still apply to it. A recognised container
+under a **media** extension of another container is `CONTAINER_EXTENSION_MISMATCH` (and replaces the generic
+finding); under a **non-media** extension the inventory compares (`.pdf`, `.txt`, `.docx`, …) it keeps the generic
+`EXTENSION_MISMATCH`, added by [mediascan.rs](../src/core/src/mediascan.rs) when the signature table does not know the
+container (an MP3 without ID3). Extensions the inventory does not compare (`.raw`, none) give neither.
+
+A walk stopped by a parser limit (frames, pages, boxes per parent) reports `PARSER_LIMIT_REACHED` and treats the rest
+of the file as not examined: it never becomes `TRAILING_DATA`, `TRUNCATED_STREAM` or a duration comparison.
+
+### ISO BMFF box header (ISO/IEC 14496-12 §4.2)
 
 ```text
-offset  bytes                                            text
-     0  25 50 44 46 2D 31 2E 34 0A 25 20 73 61 6D 70 6C  %PDF-1.4.% sampl   ◄ bytes 0–4 = signature #1 "PDF document"
-    16  65 3A 20 61 20 50 44 46 20 72 65 6E 61 6D 65 64  e: a PDF renamed
-    32  20 61 73 20 61 20 70 68 6F 74 6F 0A 31 20 30 20   as a photo.1 0
-   ...
-    96  20 31 20 30 20 52 20 3E 3E 0A 25 25 45 4F 46 0A   1 0 R >>.%%EOF.
-name "foto-vacaciones.jpg" → extension "jpg" (lower-cased text after the last dot)
-"jpg" ∉ {pdf}  and  "jpg" is a known extension (signature #3)  → EXTENSION_MISMATCH (medium)
-                                                                 detected = "PDF document", extension = "jpg"
+offset  size  field
+0       4     size (u32 BE)        1 = 64-bit largesize follows; 0 = to the end of the parent
+4       4     type (fourcc)        printable ASCII, or © (0xA9) first
+8       8     largesize (u64 BE)   only when size == 1
++0/8/16 16    usertype             only when type == 'uuid'
 ```
 
-### Decision ([analyzer.rs](../src/core/src/analyzer.rs) `analyze`)
+Rules ([bmff.rs](../src/media/src/bmff.rs) `walk`): a box whose end passes the file is `Truncated`; a child that
+passes its parent is `SizeInconsistent`; a non-printable type at the top level ends the walk and the rest is
+`TrailingData`. Containers walked: moov trak mdia minf stbl edts udta dinf mvex moof traf mfra sinf schi tref
+gmhd tapt clip matt and meta (ISO full box, or QuickTime meta without version/flags when `hdlr`/`keys` follows).
+Read: `ftyp`, `mvhd`/`tkhd`/`mdhd` (v0 32-bit and v1 64-bit times and durations), `hdlr` (type and name, C or
+Pascal string), the first `stsd` entry (fourcc; audio channels, sample size and rate 16.16; video width, height,
+compressor name; vendor), `stts` (Σ count·delta), `stsz`, `elst` (count), `keys` + `ilst` (`data` atoms: UTF-8,
+UTF-16, integers), QuickTime `udta` text atoms `©xxx` ([u16 length][u16 language][text]), 3GPP asset boxes,
+`XMP_` CreatorTool. `mdat` payloads are never read.
+
+Times: `unix = value − 2 082 844 800` for a non-zero value, printed RFC 3339 UTC (integer arithmetic, Howard
+Hinnant's civil-date algorithm in [util.rs](../src/media/src/util.rs)).
+
+### RIFF/WAVE, Ogg, MP3 layouts
+
+```text
+RIFF/WAVE   "RIFF" size(u32 LE) "WAVE" { id(4) size(u32 LE) payload pad-to-even }*
+            fmt : tag channels rate byte_rate block_align bits   (PCM: block_align = ch·⌈bits/8⌉, byte_rate = rate·block_align)
+            bext: Description 256 · Originator 32 · OriginatorReference 32 · Date 10 · Time 8 · TimeReference 8 ·
+                  Version 2 · UMID 64 · loudness 10 · reserved 180 · CodingHistory …   (EBU Tech 3285)
+Ogg page    "OggS" ver(0) type(1: continued 2: BOS 4: EOS) granule(i64 LE) serial seq crc(u32 LE) nseg lacing[nseg] body
+            CRC-32: poly 0x04C11DB7, init 0, no reflection, computed with the CRC field set to 0 (RFC 3533)
+            OpusHead: version channels pre_skip(u16) input_rate(u32) gain mapping;  OpusTags: vendor + "KEY=value"
+MP3 frame   11 sync bits · version · layer · protection · bitrate idx · rate idx · padding · private · mode …
+            first frame: "Xing"/"Info" at 4+side-info (32/17 MPEG-1, 17/9 MPEG-2) → flags, frames, bytes, TOC, quality,
+            then a 9-byte encoder string (LAME tag); "VBRI" at 36
+ID3v2       "ID3" major rev flags size(syncsafe 4×7 bit) frames{ id(4) size(4; syncsafe in 2.4) flags(2) body }
+```
+
+### Annotated example: `examples/sample/evidence/camera-edited.mov`
+
+```text
+ftyp  qt   [qt  ]                    brand QuickTime
+wide                                 placeholder box
+mdat  8008 bytes                     the 440 Hz tone (never read)
+moov
+  mvhd creation 2026-03-01T10:00:00Z, modification 2026-03-04T10:00:00Z  → MEDIA_MODIFIED_AFTER_CREATION
+  trak
+    tkhd creation 2026-03-02T10:00:00Z (1 day after mvhd)                → MEDIA_TIMES_INCONSISTENT
+    mdia mdhd · hdlr soun "Core Media Audio" · stsd sowt 8000 Hz 1 ch 16 bit, vendor appl
+  meta keys com.apple.quicktime.make/model/software/creationdate (2026-02-19)  → DEVICE_CLAIM, TAG_TIME_DIFFERS_FROM_HEADER
+  udta ©too "Adobe Premiere Pro 2024"                                    → EDITING_SOFTWARE_TRACE,
+                                                                           ENCODER_CONFLICTS_WITH_DEVICE_CLAIM
+```
+
+### Decision ([signals.rs](../src/media/src/signals.rs) `signals`)
 
 ```mermaid
-flowchart TB
-    S["name, size, first 4 KiB"] --> Z{"size = 0?"}
-    Z -->|yes| E0["EMPTY_FILE (info)"]
-    S --> D{"a signature matches<br/>at its offset?"}
-    D -->|no| U["detected_type = unknown<br/>no type finding"]
-    D -->|yes| X{"file name has<br/>an extension?"}
-    X -->|no| N["no finding"]
-    X -->|yes| L{"extension in the<br/>signature's list?"}
-    L -->|yes| N
-    L -->|no| P{"executable<br/>signature?"}
-    P -->|yes| H["EXECUTABLE_CONTENT (high)"]
-    P -->|no| K{"extension known to any signature<br/>or txt csv log xml json html?"}
-    K -->|yes| M["EXTENSION_MISMATCH (medium)"]
-    K -->|no| N
+stateDiagram-v2
+    [*] --> Identify
+    Identify --> NotRecognised: Unknown and media extension
+    Identify --> Container: container found
+    Container --> Structure: anomalies by kind → one finding each (count, first offset)
+    Structure --> Encoders: classify strings → editor / converter / transcoder / messenger
+    Encoders --> Claim: device fields or device software present
+    Claim --> Conflict: and an editing or re-encoding trace
+    Encoders --> Times: header times, tags, file system
+    Times --> Durations: declared vs computed
+    Durations --> Reference: --reference given
+    Reference --> [*]
+    NotRecognised --> [*]
 ```
 
-Consequences that matter in court (all from the code, all tested or testable with the samples):
-
-- A program **without an extension** (`invoice`) or with an unlisted one (`notes.md`) gets no finding: the
-  comparison needs an extension, and non-executable mismatches need a known or text extension.
-- The PE test is only 2 bytes (`MZ`) and GZIP only 2 bytes (`1F 8B`): a text file `notes.txt` that begins with
-  `MZ` is reported as `EXECUTABLE_CONTENT` (false positive). Confirm with a PE parser before relying on it.
-- Containers are typed by their outer signature: a `.docx` and a `.jar` are both "ZIP / Office Open XML", so a
-  `.jar` renamed `.docx` gives no finding. HEIC and MP4 share `ftyp`.
-- Matching is on the content's first bytes only; the extension is case-insensitive (`.JPG` = `.jpg`).
-- No error rates have been measured on a labelled corpus ([admissibility.md](admissibility.md#consolidated-gap-list), G5).
-
-## B5 Duplicate detection by digest
-
-```text
-duplicate_groups(items)                                     src/core/src/report/mod.rs
-  key = primary digest (first selected algorithm)
-  only items that were hashed (no UNREADABLE) and have size > 0 (empty files are all identical)
-  groups = items sharing a key, if 2 or more            → audit: duplicate_group {algorithm, hash, items}
-  each member gets DUPLICATE (info) {algorithm, count, others}, others capped at 10 names + "… (+N)"
-```
-
-Two different files with the same SHA-256 would require a collision; no SHA-256 collision is publicly known, and
-the generic birthday bound for 256-bit digests is about 2¹²⁸ operations. With `md5` or `sha1` as the primary,
-deliberately colliding files can be produced (B3), so a duplicate group computed on MD5 alone proves less. The
-complete groups (paths, not only names) are in `statistics.json` and `hashes.csv`.
+Durations compared: `mdhd[n]` vs `stts[n]` per track; `mvhd` vs the longest `tkhd` (only without edit lists);
+WAVE `data` size field vs bytes present; Xing/Info/VBRI frame count and ID3 `TLEN` vs frames counted. They
+differ when `|a − b| > 200 ms` **and** `|a − b| · 100 > max(a, b) · 5`.
 <!-- /forge:domain -->
 
 ## B6 The audit hash chain
@@ -565,11 +588,9 @@ stateDiagram-v2
 ```
 
 <!-- forge:domain -->
-This tool is the **intake** role (`CASE_ROLE = Intake`): it does not run the matching above. It registers every
-item that was hashed: same path and same content keeps the existing id (`already_registered`); a registered path
-with other content gets a **new** id and the finding `REGISTRY_PATH_CONTENT_CHANGED` (medium); anything else gets
-a new id. Unreadable items are not registered. The analysis matching is in the same code and runs in every tool
-scaffolded from this one.
+This tool is an **analysis** tool (`CASE_ROLE = Analysis`): before the media analysis of an item it runs the
+matching above against the registry written by the intake tool (rv-hashinv); it never writes the registry. A
+mismatch does not stop the analysis — the report then carries both the case finding and the media findings.
 <!-- /forge:domain -->
 
 ### Cross-linking of the two chains
@@ -683,7 +704,9 @@ Standards: RFC 3161 (Time-Stamp Protocol), RFC 5816 (ESSCertIDv2 update), RFC 56
 <!-- forge:domain -->
 Reports are written by a small built-in PDF writer ([report/pdf.rs](../src/core/src/report/pdf.rs)): PDF 1.4,
 A4, the standard Helvetica, Helvetica-Bold and Courier fonts with WinAnsiEncoding (English, Spanish and French
-characters; anything else becomes `?`), no embedded fonts, one cross-reference table, one `%%EOF`.
+characters; anything else becomes `?`), no embedded fonts, one cross-reference table, one `%%EOF`. Tables of the
+media section (streams, times, tags, structure tree) are printed as key/value rows; the full data is in
+`technical.json`, `structure.json` and `metadata.json`.
 <!-- /forge:domain -->
 
 With `--sign-cert`, the file is written **once** with a signature placeholder and then signed in place (no
@@ -769,14 +792,56 @@ version and repeat the run (ISO/IEC 27037 repeatability and reproducibility, [ad
 <!-- forge:domain -->
 ## B12 What each finding does not prove
 
-| Finding (severity) | Rule (code) | Shows | Does not prove |
-| --- | --- | --- | --- |
-| `EMPTY_FILE` (info) | bytes read = 0 | The file has 0 bytes | Whether it was emptied on purpose or created empty |
-| `EXTENSION_MISMATCH` (medium) | signature found; extension not in its list; extension known or textual ([B4](#b4-type-detection-by-magic-bytes-and-extension-mismatch)) | Name and content signature disagree | An attempt to hide content; renaming is common and often innocent |
-| `EXECUTABLE_CONTENT` (high) | PE or ELF signature; extension not an executable one | A program stored under a non-program name | That the program is malicious; a 2-byte `MZ` match can be a false positive |
-| `DUPLICATE` (info) | same primary digest, size > 0 ([B5](#b5-duplicate-detection-by-digest)) | Identical content in several files | Who copied the file, when, or which copy is the original |
-| `UNREADABLE` (high) | open or read error | The OS error text | That the file is damaged; permissions and locks cause this |
-| `REGISTRY_PATH_CONTENT_CHANGED` (medium) | intake: registered path, other content | The path now holds other content (new evidence id) | Which version is the original, or why it changed |
+Wording as printed (English catalogue, [i18n/en.json](../i18n/en.json)); `%{…}` are filled from the finding's
+parameters. Severities from the code.
+
+| Finding (severity) | Shows | Does not prove |
+| --- | --- | --- |
+| `EMPTY_FILE` (info) | The file contains no data (0 bytes). | It does not show whether the file was emptied deliberately or created empty. |
+| `EXTENSION_MISMATCH` (medium) | The name ends in .%{extension} but the content starts with the signature of a %{detected} file. | Renaming is common and often innocent; it does not by itself prove an attempt to hide content. |
+| `EXECUTABLE_CONTENT` (high) | The content is a %{detected} program although the name ends in .%{extension}. | It does not show that the program is malicious; analyse it in an isolated environment. |
+| `DUPLICATE` (info) | Identical content (same %{algorithm}) appears in %{count} files: %{others}. | Identical hashes show identical content, not who copied the file or when. |
+| `UNREADABLE` (high) | Reading failed: %{error}. | It does not show that the file is damaged; permissions or locks can cause this. |
+| `EVIDENCE_HASH_MISMATCH_WITH_CASE` (high) | The %{algorithm} of this file is %{actual}, but evidence %{evidence_id} was registered at intake with %{expected}: the file examined is not bit-identical to the registered item. | Who changed the file, when, or whether the change was deliberate; the analysis still ran so the examiner can decide. |
+| `EVIDENCE_NOT_IN_CASE_REGISTRY` (medium) | No item of case %{case_id} was registered with this path or this content, so its continuity from intake cannot be shown. | That the file is altered or irrelevant; it may simply not have gone through intake. |
+| `REGISTRY_PATH_CONTENT_CHANGED` (medium) | This path was registered earlier as %{previous_id} with other content; the current content gets a new evidence ID. | Which version is the original or why the content changed. |
+| `PARSER_FAILED` (high) | The isolated analysis of this file stopped before finishing (reason: %{reason}, exit code %{exit_code}). The file was hashed and its integrity record is complete; its container was not fully examined. | It does not show that the file is malicious or manipulated: damaged, unusual or very large files can exhaust the time or memory limits. Re-run with higher limits or examine the file manually. |
+| `EVIDENCE_CHANGED_DURING_ANALYSIS` (high) | The bytes read for the media analysis have %{algorithm} %{second_pass}, but the hashing pass recorded %{first_pass} for the same file: the file changed between the two reads, so the analysis results may not describe the hashed evidence. | Who or what changed the file (synchronisation software, antivirus, another program or a failing disk can all do it) or that the original evidence is altered; work on a write-protected copy and repeat the run. |
+| `MEDIA_NOT_RECOGNISED` (low) | The name ends in .%{extension}, a media extension, but the content does not start like an MP4/MOV, WAVE, Ogg or MP3 file, so no container could be examined. | It does not prove the file was falsified: it may be damaged, encrypted, empty, or a format this version does not read (FLAC, Matroska, raw AAC…). |
+| `CONTAINER_EXTENSION_MISMATCH` (medium) | The content is a %{container} container, but the name ends in .%{extension}, which normally names another container. | Renaming or saving with the wrong extension is common and often innocent; it does not by itself prove editing or an attempt to deceive. |
+| `BRAND_EXTENSION_MISMATCH` (low) | The ISO BMFF major brand is '%{brand}' (compatible: %{compatible}), which is unusual for a .%{extension} file (for example a QuickTime brand in an .mp4, or no 3GPP brand in a .3gp). | Many tools write generic brands, and renaming is common; it does not show which device or program wrote the file, nor that the content was changed. |
+| `STRUCTURE_SIZE_INCONSISTENT` (medium) | %{count} box, chunk or tag size field(s) do not fit their parent or the file; first at offset %{offset}: %{detail}. | Sizes that do not add up appear after editing tools rewrite part of a file, but also after transfer errors, recovery (carving) or buggy writers; it does not show what was changed or by whom. |
+| `TRUNCATED_STREAM` (medium) | %{count} structure(s) end before their declared size or end marker; first at offset %{offset}: %{detail}. | Truncation is typical of interrupted copies, downloads or recordings, and of partial recovery; it does not by itself show deliberate cutting of the content. |
+| `FRAME_SYNC_GAPS` (medium) | %{count} run(s) of bytes that are not part of the audio stream were found between frames or pages; first at offset %{offset}: %{detail}. | Gaps appear where two recordings are joined, but also with damaged copies, padding written by some encoders or tags embedded in odd places; it does not show where content was removed or inserted. |
+| `OGG_CRC_MISMATCH` (medium) | %{count} Ogg page(s) carry a CRC-32 that does not match their bytes; first at offset %{offset}: %{detail}. | A wrong checksum shows the page bytes changed after the page was written — by editing, but equally by storage or transfer corruption; it does not show which. |
+| `OGG_PAGE_SEQUENCE_GAP` (medium) | %{count} time(s) the page sequence number of a logical stream does not follow the previous page; first at offset %{offset}: %{detail}. | Missing page numbers show that pages are absent or were reordered; a damaged copy or a recovery tool can cause it as well as editing. |
+| `OGG_GRANULE_NOT_MONOTONIC` (medium) | %{count} time(s) the granule position (the stream's sample clock) is lower than on the previous page; first at offset %{offset}: %{detail}. | A clock that goes back is consistent with pages taken from elsewhere or reordered, but some muxers and damaged files show it too; it does not show what was heard or removed. |
+| `OGG_CHAINED_STREAMS` (low) | A new logical stream starts after the previous one ended (chained Ogg, %{count} time(s)); first at offset %{offset}: %{detail}. | Chaining is how Ogg files are concatenated, by editors and also by streaming radio recorders; it does not show that the parts come from different recordings or were altered. |
+| `STREAM_PARAMETERS_CHANGE` (medium) | The sample rate, channel count or MPEG version changes inside one stream (%{count} time(s)); first at offset %{offset}: %{detail}. | A change of parameters is typical of joined recordings, but streaming captures and a few encoders produce it too; it does not show which part is original. |
+| `FORMAT_PARAMETERS_INCONSISTENT` (medium) | Header fields that must agree do not (%{count} case(s)); first at offset %{offset}: %{detail}. | Contradictory header fields are written by hand-made or buggy tools and after header edits; ordinary players often ignore them, and they do not show that the audio was changed. |
+| `PARSER_LIMIT_REACHED` (info) | A safety limit of the parser was reached (%{count} time(s)); first at offset %{offset}: %{detail}. The rest of that structure was not examined. | Limits protect the examiner's machine from hostile files; reaching one says nothing about authenticity, only that the examination of that part is incomplete. |
+| `TRAILING_DATA` (medium (low when all zero)) | %{bytes} bytes follow the logical end of the container at offset %{offset} (%{detail}). | Extra bytes are left by some editors and appenders, but also by copy tools, padding, recovery or concatenated downloads; they do not show what the bytes contain or who added them. Examine them separately. |
+| `MULTIPLE_MDAT` (low) | The file holds %{count} 'mdat' boxes without being a fragmented MP4. | Some recorders and editors write several data boxes legitimately (for example after recovering an interrupted recording); it does not show that data was added from another file. |
+| `MOOV_AFTER_MDAT` (info) | The movie index ('moov') follows the media data ('mdat'): layout %{layout}, brand '%{brand}'. Recorders that write while recording usually do this; files optimised for streaming put the index first. | Layout alone is not a sign of editing; compare it with a reference file from the claimed device (--reference), which is where a difference becomes meaningful. |
+| `VENDOR_TRACES` (info) | Structures typical of particular vendors were found: %{traces}. | These structures can be copied or written by other software; they suggest which family of software touched the file, not which device recorded it. |
+| `EDITING_SOFTWARE_TRACE` (medium) | %{source} contains '%{value}', which names %{software}, an audio or video editor. | Editors are also used to cut, normalise or convert files for legitimate reasons (playback, sharing, archiving), and the string can be written or removed by anyone; it does not show what was changed. |
+| `ONLINE_CONVERTER_TRACE` (medium) | %{source} contains '%{value}', which names %{software}, an online conversion service: the file was most likely re-encoded or re-wrapped after it was recorded. | Conversion is often done only to make a file playable or smaller; it does not show that the content was edited, only that this file is not the first-generation recording. |
+| `TRANSCODER_TRACE` (low) | %{source} contains '%{value}', which names %{software}: the file was written or re-wrapped by general-purpose conversion software. | FFmpeg-based libraries are built into many apps, messengers and even some recorders; this shows which software wrote the container, not that the content was edited. |
+| `MESSENGER_TRACE` (low) | %{source} contains '%{value}', which names %{software}, a messaging app that re-encodes the media it sends. | Passing through a messenger is ordinary and changes the file without changing what it shows; it does not identify the sender or prove editing. |
+| `ENCODER_IDENTIFIED` (info) | Strings naming the software or device that wrote the file: %{encoders}. | These strings are written by the software itself and can be changed, copied or removed; they are context for the examiner, not proof of origin. |
+| `DEVICE_CLAIM` (info) | The metadata names a recording device or device software: %{device}. | Anyone can write these fields, and editors often copy them from the original; they do not prove that this device recorded this file. Compare with a reference file from the device (--reference). |
+| `ENCODER_CONFLICTS_WITH_DEVICE_CLAIM` (medium) | The metadata names a device (%{device}) but the file also carries a trace of %{software}, software that re-encodes or edits: this file is unlikely to be the device's first-generation recording. | Copies made for sharing, playback or archiving are often re-encoded while keeping the device tags; it does not show that the content was altered or what was changed. |
+| `MEDIA_TIMES_ZERO` (info) | %{count} creation/modification time fields of the container are zero (not set). | Many muxers leave these fields empty unless told otherwise, and some apps clear them for privacy; it does not show that dates were removed to hide something. |
+| `MEDIA_TIMES_INCONSISTENT` (medium) | %{count} disagreement(s) between the movie, track and media header times (tolerance 60 s; a modification time may not precede its creation by more than 2 s): %{detail}. | Device clocks, time-zone handling and some muxers produce such differences; they show the times are not all original, not when or how the content changed. |
+| `MEDIA_MODIFIED_AFTER_CREATION` (low) | The movie header says it was created %{created} and modified %{modified}. | Software updates the modification time when it re-saves a file, including for harmless reasons (re-tagging, trimming silence, copying with some apps); it does not show what changed. |
+| `TAG_TIME_DIFFERS_FROM_HEADER` (low) | %{tag_source} says '%{tag_time}', more than 26 hours away from the header creation time %{header_time}. | Tags are free text, often in local time and sometimes set by the user or by later software; the difference does not show which date is right. |
+| `MEDIA_TIME_IN_FUTURE` (low) | %{source} is %{time}, more than one day after this analysis ran. | A wrong device clock is the usual cause; it does not prove that the time was forged. |
+| `FILE_TIME_BEFORE_MEDIA_TIME` (low) | The examined copy was last modified %{file_modified}, more than 26 hours before the time the media says it was made (%{media_time}). | File-system times change with copying and depend on the acquisition method, and device clocks can be wrong; it shows an inconsistency to explain, not which time is false. |
+| `DURATION_MISMATCH` (medium) | %{declared_source} declares %{declared_ms} ms but %{computed_source} gives %{computed_ms} ms (difference above 5 % and 200 ms). | Editing tools that cut a file without rewriting its header produce this, but so do interrupted recordings, VBR headers written before the end, and some encoders; it does not show where content is missing or added. |
+| `METADATA_ABSENT` (info) | The %{container} file carries no tags, encoder strings or device fields. | Many recorders, converters and messengers write no metadata or strip it for privacy; absence is not evidence of tampering, it only removes context. |
+| `REFERENCE_CONSISTENT` (info) | All %{aspects} compared aspects (container, brands, layout, codecs, parameters, handler names, encoders, tag keys, timescales, chunk/frame layout) match the reference %{reference}. | A matching structure is expected from the same device or app, but a careful forger or a lossless re-wrap with the same software can match too; it does not prove the file is original. |
+| `REFERENCE_DIFFERS` (medium) | %{count} aspect(s) differ from the reference %{reference}: %{differences}. | Firmware or app updates, other recording modes (quality, stereo/mono, video size) and settings change these aspects too; check that the reference really matches the claimed device, version and settings before drawing conclusions. |
+| `REFERENCE_UNREADABLE` (low) | The reference %{reference} could not be compared: %{reason}. | This says nothing about the evidence; provide a readable reference in a supported container. |
 <!-- /forge:domain -->
 
 Case-folder findings (shared by every tool in the analysis role):
@@ -808,11 +873,19 @@ Academic and practitioner literature
   CRYPTO 2017.
 
 <!-- forge:domain -->
-- G. Kessler, *File Signatures Table* (garykessler.net) and the `file(1)` / libmagic database — practitioner
-  references for magic numbers (to be verified against the entries of [B4](#b4-type-detection-by-magic-bytes-and-extension-mismatch)).
-- Format specifications for the signatures used: ISO 32000-1 (PDF header), ISO/IEC 15948 (PNG), ITU-T T.81
-  (JPEG SOI marker), PKWARE APPNOTE (ZIP local file header), RFC 1952 (GZIP), ISO/IEC 14496-12 (`ftyp` box),
-  Microsoft PE/COFF specification (`MZ` DOS header).
+- ISO/IEC 14496-12, *ISO base media file format*; Apple, *QuickTime File Format Specification* (QuickTime
+  metadata `keys`/`ilst`, `udta` text atoms) — to be verified against the edition cited in a report.
+- 3GPP TS 26.244 (3GP file format, asset boxes) — to be verified.
+- Microsoft / IBM, *Multimedia Programming Interface and Data Specifications 1.0* (RIFF, WAVE); EBU Tech 3285
+  (Broadcast Wave `bext`); EBU Tech 3306 (RF64) — to be verified.
+- RFC 3533 (Ogg encapsulation, CRC-32), RFC 7845 (Ogg Opus: `OpusHead`, `OpusTags`, granule at 48 kHz, pre-skip),
+  Xiph.Org *Vorbis I specification* (identification and comment headers).
+- ISO/IEC 11172-3 and 13818-3 (MPEG audio frame header); id3.org ID3v2.3.0 and ID3v2.4.0; the Xing/Info and
+  LAME tag descriptions published with LAME — to be verified.
+- SWGDE, *Best Practices for Forensic Audio* and *Best Practices for Digital Audio Authentication*; SWGDE,
+  *Technical Overview of Digital Video Files* — background for structural authentication; to be verified.
+- C. Grigoras, *Applications of ENF criterion in forensic audio, video, computer and telecommunication
+  analysis* (2007) — ENF, out of scope for v0.1.
 <!-- /forge:domain -->
 
 Independent oracles used to cross-check this tool: Python `hashlib`/`blake3` for

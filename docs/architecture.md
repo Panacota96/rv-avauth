@@ -14,7 +14,9 @@ flowchart TB
         RUN["run.rs<br/>pipeline"]
         IN["input.rs"]
         H["hash.rs"]
-        AN["analyzer.rs<br/>(domain logic)"]
+        AN["analyzer.rs<br/>routing"]
+        MS["mediascan.rs<br/>media analysis"]
+        WK["worker.rs<br/>child process"]
         AU["audit.rs"]
         CA["case.rs<br/>case folder"]
         REP["report/<br/>JSON · HTML · PDF"]
@@ -25,6 +27,8 @@ flowchart TB
     RUN -- "Event stream" --> CLI
     RUN -- "Event stream (mpsc)" --> GUI
     RUN --> IN & H & AN & AU & REP & CA
+    AN --> WK --> MS
+    MS --> MED[["rv_avauth_media (src/media)<br/>bmff · riff · ogg · mp3<br/>encoders · signals · reference"]]
     CA --> AU
     REP --> I18N
 ```
@@ -35,7 +39,10 @@ flowchart TB
 | --- | --- | --- |
 | `input.rs` | Files, folders, list files → sorted, de-duplicated, absolute paths. Symlinks not followed. | No |
 | `hash.rs` | One read loop (1 MiB chunks) feeding 1–2 digests; known-answer self-test. | No |
-| `analyzer.rs` | Signature detection and per-item findings. | **Yes — this is the domain logic** |
+| `analyzer.rs` | Frozen domain API: `Analysis`, `DomainOptions` (references, worker limits, isolation), `AnalyzeCtx`, `analyze_item` (media candidates → worker, others → the forge's signature inventory), `audit_summary`. | Domain |
+| `mediascan.rs` | One media item: second-read re-hash, bounded parse, signals, reference comparison, `structure.json` / `metadata.json` / `reference-comparison.json`, report summary (`details.media`). | Domain |
+| `worker.rs` | `<exe> worker …` child per media item: Job Object / `RLIMIT_AS`, timeout, go line, JSON reply, crash → `PARSER_FAILED`, partial outputs kept and audited. | Shared pattern (rv-imgauth, rv-pdfauth) |
+| `src/media` (`rv-avauth-media`) | `#![forbid(unsafe_code)]` parsers over a bounded `Source`: ISO BMFF, RIFF/WAVE, Ogg, MP3/ID3; `encoders.rs` classification, `signals.rs` findings, `reference.rs` fingerprint. No dependency on the core. | Domain |
 | `audit.rs` | Append-only hash-chained `audit.jsonl` + `audit.log`; `verify`. | No |
 | `case.rs` | Shared case folder: `case.json`, hash-chained `case-log.jsonl` under a lock, evidence registry, `verify_case`. Role = `CASE_ROLE` (intake here, analysis in scaffolded tools). See [case-folder.md](case-folder.md). | No (flip `CASE_ROLE`) |
 | `report/` | View models → minijinja HTML, built-in PDF writer, schema-versioned JSON. | Adapt wording/fields |

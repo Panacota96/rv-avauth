@@ -48,7 +48,7 @@
     "none": "None",
     "unknown": "unknown",
     "method": "Method",
-    "method_text": "Each file was opened read-only, hashed in a single pass with the selected algorithms, and checked against a table of file signatures. Every action was written to a hash-chained audit log.",
+    "method_text": "Each file was opened read-only and hashed in a single pass with the selected algorithms. Audio and video files (MP4/MOV/M4A/3GP, WAVE, Ogg, MP3, by content or extension) were then examined in an isolated worker process with time and memory limits: the file was hashed a second time and compared with the first pass, and its container structure (boxes, chunks, pages, frames), internal times, durations, encoder strings and tags were read with bounded parsers. No audio or video was decoded. Every action was written to a hash-chained audit log.",
     "conclusion": "Conclusion",
     "what_we_did": "What we did",
     "what_we_found": "What we found",
@@ -91,7 +91,82 @@
     "mismatched": "Different from the registry",
     "unregistered": "Not in the registry",
     "intake_date": "Registered at intake (UTC)",
-    "case_dir": "Case folder"
+    "case_dir": "Case folder",
+    "media_analysis": "Media analysis",
+    "media_rehash": "Second read",
+    "media_second_pass": "second pass",
+    "media_rehash_match": "matches the first pass",
+    "media_rehash_differs": "DIFFERS from the first pass",
+    "media_worker": "Isolation",
+    "media_in_process": "in process",
+    "media_status_completed": "completed",
+    "media_status_not_completed": "not completed",
+    "media_status_not_recognised": "content not recognised as a supported container",
+    "media_more_rows": "… %{n} more rows in structure.json / metadata.json",
+    "media_streams": "Streams",
+    "media_times": "Times",
+    "media_durations": "Durations",
+    "media_encoders": "Encoder and software strings",
+    "media_device_claims": "Device named in the metadata",
+    "media_tags": "Tags",
+    "media_anomalies": "Structural anomalies",
+    "media_tree": "Structure (boxes, chunks, pages, frames)",
+    "media_reference": "Reference",
+    "media_evidence": "Evidence",
+    "media_aspect": "Aspect",
+    "media_same": "same",
+    "media_differs": "differs",
+    "media_kind": "Kind",
+    "media_codec": "Codec",
+    "media_params": "Parameters",
+    "media_timescale": "Timescale",
+    "media_duration_ms": "Duration (ms)",
+    "media_samples": "Samples",
+    "media_handler": "Handler / compressor",
+    "media_source": "Source",
+    "media_raw": "As stored",
+    "media_origin": "Origin",
+    "media_value": "Value",
+    "media_label": "Software",
+    "media_category": "Category",
+    "media_key": "Key",
+    "media_offset": "Offset",
+    "media_detail": "Detail",
+    "media_box": "Box / chunk",
+    "media_file": "File",
+    "extracted_files": "Files written for this item",
+    "media_container": "Container",
+    "media_file_size": "File size (bytes)",
+    "media_logical_end": "Logical end (bytes)",
+    "media_major_brand": "Major brand",
+    "media_compatible_brands": "Compatible brands",
+    "media_top_level_boxes": "Top-level boxes",
+    "media_mdat": "Media data (mdat)",
+    "media_moov_offset": "Index (moov) offset",
+    "media_fragmented": "Fragmented",
+    "media_edit_lists": "Edit lists",
+    "media_free_boxes": "Free/skip/wide boxes",
+    "media_vendor_traces": "Vendor traces",
+    "media_riff_form": "RIFF form (size field)",
+    "media_chunks": "Chunks",
+    "media_wave_format": "WAVE format",
+    "media_data_chunk": "data chunk",
+    "media_ogg_pages": "Ogg pages",
+    "media_ogg_stream": "Ogg stream",
+    "media_id3": "Tags (ID3, APE)",
+    "media_mpeg_frames": "MPEG audio frames",
+    "media_vbr_header": "Xing / Info / VBRI header",
+    "media_ref_container": "Container",
+    "media_ref_brands": "Brands",
+    "media_ref_top_level_layout": "Top-level layout",
+    "media_ref_codecs": "Codecs",
+    "media_ref_audio_parameters": "Audio parameters",
+    "media_ref_video_size": "Video size",
+    "media_ref_handler_names": "Handler names",
+    "media_ref_encoders": "Encoder strings (digits ignored)",
+    "media_ref_tag_keys": "Tag keys",
+    "media_ref_timescales": "Timescales",
+    "media_ref_chunk_or_frame_layout": "Chunk / frame layout"
   },
   "severity": {
     "high": "High",
@@ -139,13 +214,205 @@
       "title": "Registered path now holds different content",
       "shows": "This path was registered earlier as %{previous_id} with other content; the current content gets a new evidence ID.",
       "does_not_prove": "Which version is the original or why the content changed."
+    },
+    "PARSER_FAILED": {
+      "title": "Media analysis did not complete",
+      "shows": "The isolated analysis of this file stopped before finishing (reason: %{reason}, exit code %{exit_code}). The file was hashed and its integrity record is complete; its container was not fully examined.",
+      "does_not_prove": "It does not show that the file is malicious or manipulated: damaged, unusual or very large files can exhaust the time or memory limits. Re-run with higher limits or examine the file manually."
+    },
+    "EVIDENCE_CHANGED_DURING_ANALYSIS": {
+      "title": "Evidence changed during the analysis",
+      "shows": "The bytes read for the media analysis have %{algorithm} %{second_pass}, but the hashing pass recorded %{first_pass} for the same file: the file changed between the two reads, so the analysis results may not describe the hashed evidence.",
+      "does_not_prove": "Who or what changed the file (synchronisation software, antivirus, another program or a failing disk can all do it) or that the original evidence is altered; work on a write-protected copy and repeat the run."
+    },
+    "MEDIA_NOT_RECOGNISED": {
+      "title": "Media name, content not recognised",
+      "shows": "The name ends in .%{extension}, a media extension, but the content does not start like an MP4/MOV, WAVE, Ogg or MP3 file, so no container could be examined.",
+      "does_not_prove": "It does not prove the file was falsified: it may be damaged, encrypted, empty, or a format this version does not read (FLAC, Matroska, raw AAC…)."
+    },
+    "CONTAINER_EXTENSION_MISMATCH": {
+      "title": "Container does not match the extension",
+      "shows": "The content is a %{container} container, but the name ends in .%{extension}, which normally names another container.",
+      "does_not_prove": "Renaming or saving with the wrong extension is common and often innocent; it does not by itself prove editing or an attempt to deceive."
+    },
+    "BRAND_EXTENSION_MISMATCH": {
+      "title": "File brand does not match the extension",
+      "shows": "The ISO BMFF major brand is '%{brand}' (compatible: %{compatible}), which is unusual for a .%{extension} file (for example a QuickTime brand in an .mp4, or no 3GPP brand in a .3gp).",
+      "does_not_prove": "Many tools write generic brands, and renaming is common; it does not show which device or program wrote the file, nor that the content was changed."
+    },
+    "STRUCTURE_SIZE_INCONSISTENT": {
+      "title": "Structure sizes do not add up",
+      "shows": "%{count} box, chunk or tag size field(s) do not fit their parent or the file; first at offset %{offset}: %{detail}.",
+      "does_not_prove": "Sizes that do not add up appear after editing tools rewrite part of a file, but also after transfer errors, recovery (carving) or buggy writers; it does not show what was changed or by whom."
+    },
+    "TRUNCATED_STREAM": {
+      "title": "File or stream is cut off",
+      "shows": "%{count} structure(s) end before their declared size or end marker; first at offset %{offset}: %{detail}.",
+      "does_not_prove": "Truncation is typical of interrupted copies, downloads or recordings, and of partial recovery; it does not by itself show deliberate cutting of the content."
+    },
+    "FRAME_SYNC_GAPS": {
+      "title": "Bytes between frames or pages",
+      "shows": "%{count} run(s) of bytes that are not part of the audio stream were found between frames or pages; first at offset %{offset}: %{detail}.",
+      "does_not_prove": "Gaps appear where two recordings are joined, but also with damaged copies, padding written by some encoders or tags embedded in odd places; it does not show where content was removed or inserted."
+    },
+    "OGG_CRC_MISMATCH": {
+      "title": "Ogg page checksum does not match",
+      "shows": "%{count} Ogg page(s) carry a CRC-32 that does not match their bytes; first at offset %{offset}: %{detail}.",
+      "does_not_prove": "A wrong checksum shows the page bytes changed after the page was written — by editing, but equally by storage or transfer corruption; it does not show which."
+    },
+    "OGG_PAGE_SEQUENCE_GAP": {
+      "title": "Ogg page numbers jump",
+      "shows": "%{count} time(s) the page sequence number of a logical stream does not follow the previous page; first at offset %{offset}: %{detail}.",
+      "does_not_prove": "Missing page numbers show that pages are absent or were reordered; a damaged copy or a recovery tool can cause it as well as editing."
+    },
+    "OGG_GRANULE_NOT_MONOTONIC": {
+      "title": "Ogg time position goes backwards",
+      "shows": "%{count} time(s) the granule position (the stream's sample clock) is lower than on the previous page; first at offset %{offset}: %{detail}.",
+      "does_not_prove": "A clock that goes back is consistent with pages taken from elsewhere or reordered, but some muxers and damaged files show it too; it does not show what was heard or removed."
+    },
+    "OGG_CHAINED_STREAMS": {
+      "title": "Several Ogg streams one after another",
+      "shows": "A new logical stream starts after the previous one ended (chained Ogg, %{count} time(s)); first at offset %{offset}: %{detail}.",
+      "does_not_prove": "Chaining is how Ogg files are concatenated, by editors and also by streaming radio recorders; it does not show that the parts come from different recordings or were altered."
+    },
+    "STREAM_PARAMETERS_CHANGE": {
+      "title": "Audio parameters change inside the stream",
+      "shows": "The sample rate, channel count or MPEG version changes inside one stream (%{count} time(s)); first at offset %{offset}: %{detail}.",
+      "does_not_prove": "A change of parameters is typical of joined recordings, but streaming captures and a few encoders produce it too; it does not show which part is original."
+    },
+    "FORMAT_PARAMETERS_INCONSISTENT": {
+      "title": "Format header contradicts itself",
+      "shows": "Header fields that must agree do not (%{count} case(s)); first at offset %{offset}: %{detail}.",
+      "does_not_prove": "Contradictory header fields are written by hand-made or buggy tools and after header edits; ordinary players often ignore them, and they do not show that the audio was changed."
+    },
+    "PARSER_LIMIT_REACHED": {
+      "title": "Part of the file was not walked",
+      "shows": "A safety limit of the parser was reached (%{count} time(s)); first at offset %{offset}: %{detail}. The rest of that structure was not examined.",
+      "does_not_prove": "Limits protect the examiner's machine from hostile files; reaching one says nothing about authenticity, only that the examination of that part is incomplete."
+    },
+    "TRAILING_DATA": {
+      "title": "Data after the end of the container",
+      "shows": "%{bytes} bytes follow the logical end of the container at offset %{offset} (%{detail}).",
+      "does_not_prove": "Extra bytes are left by some editors and appenders, but also by copy tools, padding, recovery or concatenated downloads; they do not show what the bytes contain or who added them. Examine them separately."
+    },
+    "MULTIPLE_MDAT": {
+      "title": "Several media data boxes",
+      "shows": "The file holds %{count} 'mdat' boxes without being a fragmented MP4.",
+      "does_not_prove": "Some recorders and editors write several data boxes legitimately (for example after recovering an interrupted recording); it does not show that data was added from another file."
+    },
+    "MOOV_AFTER_MDAT": {
+      "title": "Index written after the media data",
+      "shows": "The movie index ('moov') follows the media data ('mdat'): layout %{layout}, brand '%{brand}'. Recorders that write while recording usually do this; files optimised for streaming put the index first.",
+      "does_not_prove": "Layout alone is not a sign of editing; compare it with a reference file from the claimed device (--reference), which is where a difference becomes meaningful."
+    },
+    "VENDOR_TRACES": {
+      "title": "Vendor-specific boxes or keys",
+      "shows": "Structures typical of particular vendors were found: %{traces}.",
+      "does_not_prove": "These structures can be copied or written by other software; they suggest which family of software touched the file, not which device recorded it."
+    },
+    "EDITING_SOFTWARE_TRACE": {
+      "title": "Editing software named in the file",
+      "shows": "%{source} contains '%{value}', which names %{software}, an audio or video editor.",
+      "does_not_prove": "Editors are also used to cut, normalise or convert files for legitimate reasons (playback, sharing, archiving), and the string can be written or removed by anyone; it does not show what was changed."
+    },
+    "ONLINE_CONVERTER_TRACE": {
+      "title": "Online conversion service named in the file",
+      "shows": "%{source} contains '%{value}', which names %{software}, an online conversion service: the file was most likely re-encoded or re-wrapped after it was recorded.",
+      "does_not_prove": "Conversion is often done only to make a file playable or smaller; it does not show that the content was edited, only that this file is not the first-generation recording."
+    },
+    "TRANSCODER_TRACE": {
+      "title": "Transcoder or multiplexer named in the file",
+      "shows": "%{source} contains '%{value}', which names %{software}: the file was written or re-wrapped by general-purpose conversion software.",
+      "does_not_prove": "FFmpeg-based libraries are built into many apps, messengers and even some recorders; this shows which software wrote the container, not that the content was edited."
+    },
+    "MESSENGER_TRACE": {
+      "title": "Messaging app named in the file",
+      "shows": "%{source} contains '%{value}', which names %{software}, a messaging app that re-encodes the media it sends.",
+      "does_not_prove": "Passing through a messenger is ordinary and changes the file without changing what it shows; it does not identify the sender or prove editing."
+    },
+    "ENCODER_IDENTIFIED": {
+      "title": "Encoder and writing-software strings",
+      "shows": "Strings naming the software or device that wrote the file: %{encoders}.",
+      "does_not_prove": "These strings are written by the software itself and can be changed, copied or removed; they are context for the examiner, not proof of origin."
+    },
+    "DEVICE_CLAIM": {
+      "title": "Device named in the metadata",
+      "shows": "The metadata names a recording device or device software: %{device}.",
+      "does_not_prove": "Anyone can write these fields, and editors often copy them from the original; they do not prove that this device recorded this file. Compare with a reference file from the device (--reference)."
+    },
+    "ENCODER_CONFLICTS_WITH_DEVICE_CLAIM": {
+      "title": "Re-encoding software next to a device claim",
+      "shows": "The metadata names a device (%{device}) but the file also carries a trace of %{software}, software that re-encodes or edits: this file is unlikely to be the device's first-generation recording.",
+      "does_not_prove": "Copies made for sharing, playback or archiving are often re-encoded while keeping the device tags; it does not show that the content was altered or what was changed."
+    },
+    "MEDIA_TIMES_ZERO": {
+      "title": "Internal times not set",
+      "shows": "%{count} creation/modification time fields of the container are zero (not set).",
+      "does_not_prove": "Many muxers leave these fields empty unless told otherwise, and some apps clear them for privacy; it does not show that dates were removed to hide something."
+    },
+    "MEDIA_TIMES_INCONSISTENT": {
+      "title": "Internal times disagree",
+      "shows": "%{count} disagreement(s) between the movie, track and media header times (tolerance 60 s; a modification time may not precede its creation by more than 2 s): %{detail}.",
+      "does_not_prove": "Device clocks, time-zone handling and some muxers produce such differences; they show the times are not all original, not when or how the content changed."
+    },
+    "MEDIA_MODIFIED_AFTER_CREATION": {
+      "title": "Container modified after it was created",
+      "shows": "The movie header says it was created %{created} and modified %{modified}.",
+      "does_not_prove": "Software updates the modification time when it re-saves a file, including for harmless reasons (re-tagging, trimming silence, copying with some apps); it does not show what changed."
+    },
+    "TAG_TIME_DIFFERS_FROM_HEADER": {
+      "title": "Date tag differs from the internal creation time",
+      "shows": "%{tag_source} says '%{tag_time}', more than 26 hours away from the header creation time %{header_time}.",
+      "does_not_prove": "Tags are free text, often in local time and sometimes set by the user or by later software; the difference does not show which date is right."
+    },
+    "MEDIA_TIME_IN_FUTURE": {
+      "title": "Internal time later than the analysis",
+      "shows": "%{source} is %{time}, more than one day after this analysis ran.",
+      "does_not_prove": "A wrong device clock is the usual cause; it does not prove that the time was forged."
+    },
+    "FILE_TIME_BEFORE_MEDIA_TIME": {
+      "title": "File-system date earlier than the media date",
+      "shows": "The examined copy was last modified %{file_modified}, more than 26 hours before the time the media says it was made (%{media_time}).",
+      "does_not_prove": "File-system times change with copying and depend on the acquisition method, and device clocks can be wrong; it shows an inconsistency to explain, not which time is false."
+    },
+    "DURATION_MISMATCH": {
+      "title": "Declared duration differs from the content",
+      "shows": "%{declared_source} declares %{declared_ms} ms but %{computed_source} gives %{computed_ms} ms (difference above 5 % and 200 ms).",
+      "does_not_prove": "Editing tools that cut a file without rewriting its header produce this, but so do interrupted recordings, VBR headers written before the end, and some encoders; it does not show where content is missing or added."
+    },
+    "METADATA_ABSENT": {
+      "title": "No metadata in the file",
+      "shows": "The %{container} file carries no tags, encoder strings or device fields.",
+      "does_not_prove": "Many recorders, converters and messengers write no metadata or strip it for privacy; absence is not evidence of tampering, it only removes context."
+    },
+    "REFERENCE_CONSISTENT": {
+      "title": "Structure matches the reference file",
+      "shows": "All %{aspects} compared aspects (container, brands, layout, codecs, parameters, handler names, encoders, tag keys, timescales, chunk/frame layout) match the reference %{reference}.",
+      "does_not_prove": "A matching structure is expected from the same device or app, but a careful forger or a lossless re-wrap with the same software can match too; it does not prove the file is original."
+    },
+    "REFERENCE_DIFFERS": {
+      "title": "Structure differs from the reference file",
+      "shows": "%{count} aspect(s) differ from the reference %{reference}: %{differences}.",
+      "does_not_prove": "Firmware or app updates, other recording modes (quality, stereo/mono, video size) and settings change these aspects too; check that the reference really matches the claimed device, version and settings before drawing conclusions."
+    },
+    "REFERENCE_UNREADABLE": {
+      "title": "Reference file not usable",
+      "shows": "The reference %{reference} could not be compared: %{reason}.",
+      "does_not_prove": "This says nothing about the evidence; provide a readable reference in a supported container."
     }
   },
   "limitations": {
     "SIGNATURE_TABLE_LIMITED": "Type detection uses a limited table of common file signatures; unknown types are reported as unknown, not as suspicious.",
     "TIMESTAMPS_FROM_FILESYSTEM": "Modification times come from the file system of the examined copy and may differ from the original source.",
     "CLEAN_RESULT_IS_NOT_AUTHENTICITY": "A result without findings does not prove that a file is authentic or unaltered before acquisition.",
-    "TIMESTAMP_PROVES_EXISTENCE_ONLY": "A trusted timestamp proves the audit log existed in this exact form at the stated time; it does not prove that the examined copy matches the original source."
+    "TIMESTAMP_PROVES_EXISTENCE_ONLY": "A trusted timestamp proves the audit log existed in this exact form at the stated time; it does not prove that the examined copy matches the original source.",
+    "NO_ENF_ANALYSIS": "No electric network frequency (ENF) analysis is done in this version: the hum of the mains grid is not extracted or compared with grid records.",
+    "NO_CONTENT_OR_SPEAKER_ANALYSIS": "Audio and video content is never decoded: no listening, waveform, spectral, splice-in-content, deepfake or speaker analysis is performed. Findings come only from container structure and metadata.",
+    "METADATA_CAN_BE_FORGED_OR_STRIPPED": "Tags, encoder strings, device names and internal times are written by software and can be forged, copied or removed; a re-encode or a messenger usually destroys most of them.",
+    "ENCODER_TABLE_LIMITED": "Encoder strings are classified with a small built-in table (FFmpeg/Lavf, common editors, online converters, encoder libraries); unknown strings are listed but not classified.",
+    "CONTAINER_COVERAGE_LIMITED": "Only ISO BMFF (MP4/MOV/M4A/3GP), RIFF/WAVE, Ogg (Opus/Vorbis) and MP3 are parsed; FLAC, Matroska/WebM, AVI, raw AAC/AMR and others are not examined beyond hashing.",
+    "THRESHOLDS_NOT_VALIDATED_ON_DEVICE_CORPUS": "Tolerances (durations 5 % and 200 ms, header times 60 s, tag dates 26 h) and the handler-name table were tested on synthetic files only, not yet on a corpus of real device recordings.",
+    "REFERENCE_COMPARISON_LIMITS": "A reference comparison is only as good as the reference: it must come from the same device model, app version and recording settings, and its provenance must be documented by the examiner."
   },
   "brand": {
     "descriptor": "FORENSICS | INCIDENT RESPONSE | SECURITY",
@@ -225,6 +492,12 @@
     "case_dir": "Case folder",
     "case_dir_hint": "optional: shared case folder (links the tools of one case)",
     "out_from_case": "Output folder: set by the case folder",
-    "evidence_ids": "Evidence IDs"
+    "evidence_ids": "Evidence IDs",
+    "media": "5. Media analysis",
+    "reference": "Reference file",
+    "reference_hint": "optional: a file known to come from the claimed device or app",
+    "worker_timeout": "Time limit per file",
+    "media_note": "MP4/MOV/M4A/3GP, WAV, Ogg/Opus and MP3 are examined in an isolated process. Signals, not verdicts: no ENF, content or speaker analysis.",
+    "results": "Results per file"
   }
 }

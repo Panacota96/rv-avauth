@@ -1,0 +1,17 @@
+[package]
+name = "rv-avauth-media"
+description = "RV AvAuth media layer: bounded, pure-Rust parsers for ISO BMFF, RIFF/WAVE, Ogg and MP3, and the authenticity signals derived from them"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+
+[lib]
+name = "rv_avauth_media"
+path = "src/lib.rs"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true

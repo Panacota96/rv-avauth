@@ -1,5 +1,5 @@
 # Runs the sample review on Windows and checks the result.
-# Fails (non-zero exit) if the self-test, the scan or verify-log fails, or if the tool's hash register
+# Fails (non-zero exit) if the self-test, the analysis or verify-log fails, or if the tool's hash register
 # (logs\<RUN-ID>\hashes.csv) differs from the independently computed expected_hashes.csv.
 # Usage: .\examples\sample\run.ps1 [-Bin C:\path\to\rv-avauth.exe]
 param([string]$Bin = "rv-avauth")
@@ -7,8 +7,8 @@ $ErrorActionPreference = "Stop"
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $out = Join-Path $here "out"
 & $Bin self-test; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-# Expected exit code 0: one medium finding (extension mismatch) and one duplicate pair, no high finding.
-& $Bin scan --input (Join-Path $here "evidence") --hash sha256,md5 --lang all --case DEMO-001 --actor "Sample" --out $out --progress none
+# Expected exit code 0: 22 synthetic media samples, findings listed in expected_findings.json, no high finding.
+& $Bin analyze --input (Join-Path $here "evidence") --hash sha256,md5 --lang all --case DEMO-001 --actor "Sample" --out $out --progress none
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 $run = Get-ChildItem (Join-Path $out "logs") | Sort-Object Name | Select-Object -Last 1
 & $Bin verify-log $run.FullName; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

@@ -4,7 +4,7 @@
   "name": "rv-avauth",
   "module": "rv_avauth",
   "title": "RV AvAuth",
-  "run_command": "scan",
+  "run_command": "analyze",
   "planned_command": "analyze",
   "case_role": "analysis",
   "created": "2026-11-11",

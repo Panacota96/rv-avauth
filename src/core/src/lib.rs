@@ -5,6 +5,8 @@
 //!
 //! ```text
 //! input ──► hash (1–2 algorithms, one read) ──► analyzer ──► duplicates ──► reports
+//!                                                  │ media files: worker process (worker.rs)
+//!                                                  └► mediascan ──► rv_avauth_media parsers + signals
 //!   └──────────────── every step appended to the hash-chained audit log ───────────┘
 //! ```
 
@@ -16,12 +18,14 @@ pub mod events;
 pub mod hash;
 pub mod i18n;
 pub mod input;
+pub mod mediascan;
 pub mod outputs;
 pub mod report;
 pub mod run;
 pub mod time;
 pub mod trust;
 pub mod verify;
+pub mod worker;
 
 pub use case::CaseRole;
 pub use events::Event;

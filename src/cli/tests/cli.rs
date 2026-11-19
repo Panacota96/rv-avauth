@@ -58,8 +58,10 @@ fn test_pki(dir: &Path) -> Option<(TsaServer, String)> {
     Some((server, line.trim().to_string()))
 }
 
+/// The forge's three-file inventory fixture (acta.txt, acta-copia.txt, foto-vacaciones.jpg): the shared
+/// pipeline tests keep running on it; the media samples are tested in tests/samples.rs.
 fn sample() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/sample/evidence")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/inventory")
 }
 
 fn only_dir(p: &Path) -> PathBuf {
@@ -371,10 +373,15 @@ fn sample_script_compares_the_hash_register() {
         .env("RV_SAMPLE_OUT", out.path())
         .output()
         .unwrap();
-    let text = String::from_utf8_lossy(&o.stdout);
+    let text = format!(
+        "{}\n--- stderr ---\n{}",
+        String::from_utf8_lossy(&o.stdout),
+        String::from_utf8_lossy(&o.stderr)
+    );
     assert!(o.status.success(), "{}", text);
+    // the 22 synthetic media samples of examples/sample/evidence (expected_hashes.csv)
     assert!(
-        text.contains("hashes.csv matches expected_hashes.csv (3 files"),
+        text.contains("hashes.csv matches expected_hashes.csv (22 files"),
         "{}",
         text
     );

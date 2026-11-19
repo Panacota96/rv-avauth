@@ -7,8 +7,11 @@ cargo build --workspace                 # debug build of core, CLI and GUI
 cargo test  --workspace                 # unit + integration tests (GUI tests are headless)
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all -- --check
-cargo run -p rv-avauth-cli -- scan -i examples/sample/evidence --lang all
+cargo run -p rv-avauth-cli -- analyze -i examples/sample/evidence --lang all
 cargo run -p rv-avauth-gui
+python tests/make_samples.py            # regenerate the synthetic samples + expected_findings.json + expected_hashes.csv
+cargo run -p rv-avauth-gui --example gui_screenshot -- docs/images/gui-main.png en   # headless screenshot
+RV_FUZZ_ROUNDS=200000 cargo test -p rv-avauth-media --release --test hostile          # long mutation run
 ```
 
 Linux needs no system packages to build. On Windows use the MSVC toolchain (`rustup default stable-msvc`);
@@ -18,11 +21,21 @@ binaries are linked with the static C runtime (`.cargo/config.toml`), so they ru
 
 ```mermaid
 flowchart BT
-    U["Unit tests (core)<br/>known-answer hashes · chain tamper · i18n keys · PDF · wrapping"] --> I
-    I["Integration tests (CLI binary)<br/>help sections · exit codes · bulk run · verify-log · evidence untouched · docs drift"] --> X
+    P["Parser tests (src/media)<br/>samples = expected signals · every prefix · 6000 byte mutations<br/>oversized sizes · 5000-deep nesting · max read ≤ file size"] --> U
+    U["Unit tests (core)<br/>known-answer hashes · chain tamper · i18n keys · worker protocol · PDF"] --> I
+    I["Integration tests (CLI binary)<br/>expected_findings.json end to end · worker crash/hang/oom · reference<br/>help sections · exit codes · verify-log · evidence untouched · docs drift"] --> X
     X["Cross-language check<br/>tests/verify_chain.py re-verifies the chain, the hashes<br/>and the recorded outputs with Python"] --> M
     M["Manual release check<br/>Windows 10 VM + Windows 11: install, GUI run, open report"]
 ```
+
+## Media parser safety
+
+The parsers in `src/media` are written for hostile input: `#![forbid(unsafe_code)]`, every read goes through
+`Source::read_vec`, which refuses reads beyond the real file length or a cap, and every loop has a hard limit
+(`model::limits`). `tests/hostile.rs` asserts that no input panics and that the largest single read is never larger
+than the file (or 4 MiB). In addition the worker process bounds time and memory, so a parser bug costs one item
+(`PARSER_FAILED`), never the run. Debug builds honour `RV_WORKER_TEST_FAULT=crash|hang|oom` to prove the isolation
+end to end (`src/cli/tests/samples.rs`); release builds ignore it.
 
 ## Continuous integration
 
