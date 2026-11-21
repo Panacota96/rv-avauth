@@ -9,6 +9,9 @@ fn main() -> eframe::Result {
     if std::env::args_os().nth(1).is_some_and(|a| a == "worker") {
         std::process::exit(rv_avauth_core::worker::worker_main());
     }
+    // The start-up release check (notify only; RV_NO_UPDATE_CHECK=1 turns it off). After the worker dispatch:
+    // a worker child must never contact the network.
+    rv_avauth_core::update::start_gui_check();
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             // Title-bar and taskbar icon (the .exe file icon comes from build.rs).
