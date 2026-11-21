@@ -4,6 +4,8 @@
 use eframe::egui;
 
 fn main() -> eframe::Result {
+    // The start-up release check (notify only; RV_NO_UPDATE_CHECK=1 turns it off).
+    rv_avauth_core::update::start_gui_check();
     // Worker child (media analysis in an isolated process, started by the GUI's own runs): handled
     // before any window is created.
     if std::env::args_os().nth(1).is_some_and(|a| a == "worker") {
