@@ -5,6 +5,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Entries are generated from
 [Conventional Commits](https://www.conventionalcommits.org/) by release-please and reviewed by a human.
 
+## [0.3.0](https://github.com/Panacota96/rv-avauth/compare/v0.2.0...v0.3.0) (2026-11-21)
+
+
+### Features
+
+* **update:** check for a newer release (update-check, start-up banner) ([#8](https://github.com/Panacota96/rv-avauth/issues/8)) ([0015ad9](https://github.com/Panacota96/rv-avauth/commit/0015ad99e4b7d0a37b46ba3f2f90469c235f38af))
+
 ## [0.2.0](https://github.com/Panacota96/rv-avauth/compare/v0.1.0...v0.2.0) (2026-11-19)
 
 
